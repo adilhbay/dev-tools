@@ -25,6 +25,9 @@
       "path": "./packages/worker-js"
     },
     {
+      "path": "./packages/agent"
+    },
+    {
       "path": "./tools/gha-scripts"
     },
     {

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "include": ["."],
+  "exclude": ["node_modules", "dist"],
+  "references": [
+    {
+      "path": "../spec"
+    },
+    {
+      "path": "../../tools/eslint"
+    }
+  ]
+}

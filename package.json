@@ -20,6 +20,7 @@
     "eslint": "catalog:",
     "jiti": "catalog:",
     "nx": "catalog:",
+    "openai": "catalog:",
     "prettier": "catalog:",
     "react": "catalog:",
     "swc-node": "catalog:",

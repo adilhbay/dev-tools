@@ -1,0 +1,528 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Workflow Agent Tools",
+  "description": "Complete tool definitions for the Workflow Agent - Claude Code for Workflows",
+  "version": "1.0.0",
+  "tools": [
+    {
+      "name": "getWorkflowGraph",
+      "description": "Retrieves the complete workflow structure including all nodes, edges, and their configurations. Use this to understand the current state of the workflow before making changes.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The unique identifier of the workflow to retrieve"
+          },
+          "includeExecutionState": {
+            "type": "boolean",
+            "description": "Whether to include the current execution state of each node",
+            "default": false
+          }
+        },
+        "required": ["flowId"]
+      }
+    },
+    {
+      "name": "getNodeDetails",
+      "description": "Retrieves detailed information about a specific node, including its configuration, code (for JS nodes), HTTP settings (for HTTP nodes), and condition expressions (for condition/loop nodes).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "string",
+            "description": "The unique identifier of the node to inspect"
+          }
+        },
+        "required": ["nodeId"]
+      }
+    },
+    {
+      "name": "getNodeTemplate",
+      "description": "Retrieves an MD template that provides guidance on how to implement a specific node pattern. Templates contain purpose, available APIs, input/output contracts, examples, and constraints.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateName": {
+            "type": "string",
+            "description": "The name of the template to retrieve (e.g., 'http-aggregator', 'data-transformer', 'api-poller')"
+          }
+        },
+        "required": ["templateName"]
+      }
+    },
+    {
+      "name": "searchTemplates",
+      "description": "Searches for relevant MD templates based on a query. Returns a list of matching templates with their names and brief descriptions.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to find relevant templates (e.g., 'fetch multiple APIs', 'transform JSON', 'retry logic')"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of templates to return",
+            "default": 5
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "getExecutionHistory",
+      "description": "Retrieves the history of workflow executions, including timestamps, duration, and overall success/failure status.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to get execution history for"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of executions to return",
+            "default": 10
+          }
+        },
+        "required": ["flowId"]
+      }
+    },
+    {
+      "name": "getExecutionLogs",
+      "description": "Retrieves detailed logs from a specific workflow execution, including per-node inputs, outputs, errors, and timing information.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "executionId": {
+            "type": "string",
+            "description": "The execution ID to get logs for"
+          },
+          "nodeId": {
+            "type": "string",
+            "description": "Optional: filter logs to a specific node"
+          }
+        },
+        "required": ["executionId"]
+      }
+    },
+    {
+      "name": "createJsNode",
+      "description": "Creates a new JavaScript node in the workflow. JS nodes execute custom JavaScript code and have access to fetch, workflow SDK (variables, secrets), and logging APIs.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to add the node to"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the node"
+          },
+          "code": {
+            "type": "string",
+            "description": "JavaScript code to execute. Should export an async function: async function execute(input) { ... return output; }"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number", "description": "X coordinate on the canvas" },
+              "y": { "type": "number", "description": "Y coordinate on the canvas" }
+            },
+            "required": ["x", "y"],
+            "description": "Position on the workflow canvas"
+          }
+        },
+        "required": ["flowId", "name", "code", "position"]
+      }
+    },
+    {
+      "name": "createHttpNode",
+      "description": "Creates a new HTTP request node in the workflow. HTTP nodes make HTTP requests with configurable method, URL, headers, query parameters, and body.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to add the node to"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the node"
+          },
+          "httpId": {
+            "type": "string",
+            "description": "ID of an existing HTTP request configuration to link to this node"
+          },
+          "deltaHttpId": {
+            "type": "string",
+            "description": "Optional: ID of a delta/override HTTP configuration"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number", "description": "X coordinate on the canvas" },
+              "y": { "type": "number", "description": "Y coordinate on the canvas" }
+            },
+            "required": ["x", "y"],
+            "description": "Position on the workflow canvas"
+          }
+        },
+        "required": ["flowId", "name", "httpId", "position"]
+      }
+    },
+    {
+      "name": "createConditionNode",
+      "description": "Creates a conditional (if/else) branch node. The condition expression determines which path (THEN or ELSE) the workflow follows.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to add the node to"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the node"
+          },
+          "condition": {
+            "type": "string",
+            "description": "Condition expression to evaluate (e.g., 'input.status === 200', 'input.data.length > 0')"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number", "description": "X coordinate on the canvas" },
+              "y": { "type": "number", "description": "Y coordinate on the canvas" }
+            },
+            "required": ["x", "y"],
+            "description": "Position on the workflow canvas"
+          }
+        },
+        "required": ["flowId", "name", "condition", "position"]
+      }
+    },
+    {
+      "name": "createForNode",
+      "description": "Creates a for-loop node that iterates a fixed number of times.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to add the node to"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the node"
+          },
+          "iterations": {
+            "type": "integer",
+            "description": "Number of times to iterate"
+          },
+          "condition": {
+            "type": "string",
+            "description": "Optional: condition expression to check before each iteration (early exit)"
+          },
+          "errorHandling": {
+            "type": "string",
+            "enum": ["IGNORE", "BREAK"],
+            "description": "How to handle errors: IGNORE continues, BREAK stops the loop",
+            "default": "BREAK"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number", "description": "X coordinate on the canvas" },
+              "y": { "type": "number", "description": "Y coordinate on the canvas" }
+            },
+            "required": ["x", "y"],
+            "description": "Position on the workflow canvas"
+          }
+        },
+        "required": ["flowId", "name", "iterations", "position"]
+      }
+    },
+    {
+      "name": "createForEachNode",
+      "description": "Creates a forEach loop node that iterates over an array from the input data.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to add the node to"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the node"
+          },
+          "iteratorPath": {
+            "type": "string",
+            "description": "JSONPath-like expression to the array to iterate (e.g., 'input.data.items', 'input.users')"
+          },
+          "condition": {
+            "type": "string",
+            "description": "Optional: condition expression to check before each iteration"
+          },
+          "errorHandling": {
+            "type": "string",
+            "enum": ["IGNORE", "BREAK"],
+            "description": "How to handle errors: IGNORE continues, BREAK stops the loop",
+            "default": "BREAK"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number", "description": "X coordinate on the canvas" },
+              "y": { "type": "number", "description": "Y coordinate on the canvas" }
+            },
+            "required": ["x", "y"],
+            "description": "Position on the workflow canvas"
+          }
+        },
+        "required": ["flowId", "name", "iteratorPath", "position"]
+      }
+    },
+    {
+      "name": "updateNodeCode",
+      "description": "Updates the JavaScript code of an existing JS node.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "string",
+            "description": "The ID of the JS node to update"
+          },
+          "code": {
+            "type": "string",
+            "description": "The new JavaScript code"
+          }
+        },
+        "required": ["nodeId", "code"]
+      }
+    },
+    {
+      "name": "updateNodeConfig",
+      "description": "Updates the configuration of an existing node (name, position, condition expression, loop settings, etc.).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "string",
+            "description": "The ID of the node to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name for the node"
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            },
+            "description": "New position on the canvas"
+          },
+          "condition": {
+            "type": "string",
+            "description": "For condition/loop nodes: updated condition expression"
+          },
+          "iterations": {
+            "type": "integer",
+            "description": "For for-loop nodes: updated iteration count"
+          },
+          "iteratorPath": {
+            "type": "string",
+            "description": "For forEach nodes: updated iterator path"
+          },
+          "errorHandling": {
+            "type": "string",
+            "enum": ["IGNORE", "BREAK"],
+            "description": "For loop nodes: updated error handling"
+          },
+          "info": {
+            "type": "string",
+            "description": "Additional info/description for the node"
+          }
+        },
+        "required": ["nodeId"]
+      }
+    },
+    {
+      "name": "connectNodes",
+      "description": "Creates an edge (connection) between two nodes in the workflow.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow containing the nodes"
+          },
+          "sourceNodeId": {
+            "type": "string",
+            "description": "The ID of the source node (where the edge starts)"
+          },
+          "targetNodeId": {
+            "type": "string",
+            "description": "The ID of the target node (where the edge ends)"
+          },
+          "sourceHandle": {
+            "type": "string",
+            "enum": ["THEN", "ELSE", "LOOP"],
+            "description": "Which output handle to connect from. THEN is the default/success path, ELSE is for condition false branch, LOOP is for loop iteration connections.",
+            "default": "THEN"
+          }
+        },
+        "required": ["flowId", "sourceNodeId", "targetNodeId"]
+      }
+    },
+    {
+      "name": "disconnectNodes",
+      "description": "Removes an edge (connection) between two nodes.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "edgeId": {
+            "type": "string",
+            "description": "The ID of the edge to remove"
+          }
+        },
+        "required": ["edgeId"]
+      }
+    },
+    {
+      "name": "deleteNode",
+      "description": "Removes a node from the workflow. This also removes all edges connected to this node.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "string",
+            "description": "The ID of the node to delete"
+          }
+        },
+        "required": ["nodeId"]
+      }
+    },
+    {
+      "name": "createVariable",
+      "description": "Creates a new workflow variable that can be accessed by all nodes in the workflow.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to add the variable to"
+          },
+          "name": {
+            "type": "string",
+            "description": "Variable name (key)"
+          },
+          "value": {
+            "type": "string",
+            "description": "Variable value"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of what this variable is used for"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the variable is enabled",
+            "default": true
+          }
+        },
+        "required": ["flowId", "name", "value"]
+      }
+    },
+    {
+      "name": "updateVariable",
+      "description": "Updates an existing workflow variable.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variableId": {
+            "type": "string",
+            "description": "The ID of the variable to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New variable name"
+          },
+          "value": {
+            "type": "string",
+            "description": "New variable value"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the variable is enabled"
+          }
+        },
+        "required": ["variableId"]
+      }
+    },
+    {
+      "name": "deleteVariable",
+      "description": "Deletes a workflow variable.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variableId": {
+            "type": "string",
+            "description": "The ID of the variable to delete"
+          }
+        },
+        "required": ["variableId"]
+      }
+    },
+    {
+      "name": "runWorkflow",
+      "description": "Executes the workflow. Creates a snapshot version and runs all nodes in sequence based on the graph topology.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to execute"
+          }
+        },
+        "required": ["flowId"]
+      }
+    },
+    {
+      "name": "stopWorkflow",
+      "description": "Stops a currently running workflow execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to stop"
+          }
+        },
+        "required": ["flowId"]
+      }
+    },
+    {
+      "name": "validateWorkflow",
+      "description": "Validates the workflow structure, checking for issues like disconnected nodes, missing configurations, circular dependencies, and other potential problems.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "description": "The workflow to validate"
+          }
+        },
+        "required": ["flowId"]
+      }
+    }
+  ]
+}
