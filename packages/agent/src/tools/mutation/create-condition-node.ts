@@ -1,7 +1,7 @@
 import { createClient } from '@connectrpc/connect';
 import { FlowService, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import type { Position, ToolContext, ToolResult } from '../../types.ts';
-import { generateUlid, generateUlidBytes, ulidToBytes } from '../../utils.ts';
+import { bytesToUlid, generateUlidBytes, ulidToBytes } from '../../utils.ts';
 
 export interface CreateConditionNodeParams {
   flowId: string;
@@ -25,7 +25,7 @@ export async function createConditionNode(
   try {
     const client = createClient(FlowService, ctx.transport);
     const nodeIdBytes = generateUlidBytes();
-    const nodeId = generateUlid();
+    const nodeId = bytesToUlid(nodeIdBytes);
     const flowIdBytes = ulidToBytes(params.flowId);
 
     // Insert the base node first

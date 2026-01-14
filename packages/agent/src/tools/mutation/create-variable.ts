@@ -1,7 +1,7 @@
 import { createClient } from '@connectrpc/connect';
 import { FlowService } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import type { ToolContext, ToolResult } from '../../types.ts';
-import { generateUlid, generateUlidBytes, ulidToBytes } from '../../utils.ts';
+import { bytesToUlid, generateUlidBytes, ulidToBytes } from '../../utils.ts';
 
 export interface CreateVariableParams {
   flowId: string;
@@ -25,7 +25,7 @@ export async function createVariable(
   try {
     const client = createClient(FlowService, ctx.transport);
     const flowVariableIdBytes = generateUlidBytes();
-    const flowVariableId = generateUlid();
+    const flowVariableId = bytesToUlid(flowVariableIdBytes);
     const flowIdBytes = ulidToBytes(params.flowId);
 
     await client['flowVariableInsert']({

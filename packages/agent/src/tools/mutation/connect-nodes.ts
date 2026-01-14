@@ -1,7 +1,7 @@
 import { createClient } from '@connectrpc/connect';
 import { FlowService, HandleKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import type { HandleKindType, ToolContext, ToolResult } from '../../types.ts';
-import { generateUlid, generateUlidBytes, stringToHandleKind, ulidToBytes } from '../../utils.ts';
+import { bytesToUlid, generateUlidBytes, stringToHandleKind, ulidToBytes } from '../../utils.ts';
 
 export interface ConnectNodesParams {
   flowId: string;
@@ -24,7 +24,7 @@ export async function connectNodes(
   try {
     const client = createClient(FlowService, ctx.transport);
     const edgeIdBytes = generateUlidBytes();
-    const edgeId = generateUlid();
+    const edgeId = bytesToUlid(edgeIdBytes);
     const flowIdBytes = ulidToBytes(params.flowId);
     const sourceIdBytes = ulidToBytes(params.sourceId);
     const targetIdBytes = ulidToBytes(params.targetId);

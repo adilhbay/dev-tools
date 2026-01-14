@@ -1,7 +1,7 @@
 import { createClient } from '@connectrpc/connect';
 import { FlowService, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import type { ErrorHandlingStrategy, Position, ToolContext, ToolResult } from '../../types.ts';
-import { generateUlid, generateUlidBytes, stringToErrorHandling, ulidToBytes } from '../../utils.ts';
+import { bytesToUlid, generateUlidBytes, stringToErrorHandling, ulidToBytes } from '../../utils.ts';
 
 export interface CreateForNodeParams {
   flowId: string;
@@ -26,7 +26,7 @@ export async function createForNode(
   try {
     const client = createClient(FlowService, ctx.transport);
     const nodeIdBytes = generateUlidBytes();
-    const nodeId = generateUlid();
+    const nodeId = bytesToUlid(nodeIdBytes);
     const flowIdBytes = ulidToBytes(params.flowId);
 
     // Insert the base node first
