@@ -29,7 +29,7 @@ export async function connectNodes(
     const sourceIdBytes = ulidToBytes(params.sourceId);
     const targetIdBytes = ulidToBytes(params.targetId);
 
-    const sourceHandle = params.sourceHandle ? stringToHandleKind(params.sourceHandle) : HandleKind.THEN;
+    const sourceHandle = params.sourceHandle ? stringToHandleKind(params.sourceHandle) : HandleKind.UNSPECIFIED;
 
     await client['edgeInsert']({
       items: [
