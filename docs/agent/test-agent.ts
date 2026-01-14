@@ -1,4 +1,5 @@
-import OpenAI from "openai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { generateText, tool, jsonSchema, CoreMessage, stepCountIs } from "ai";
 import * as fs from "fs";
 import * as readline from "readline";
 import * as path from "path";
@@ -44,19 +45,8 @@ const systemPrompt = fs.readFileSync(
   "utf-8"
 );
 
-// Transform tools from agent package to OpenAI format
-const tools: OpenAI.ChatCompletionTool[] = allToolSchemas.map((schema) => ({
-  type: "function" as const,
-  function: {
-    name: schema.name,
-    description: schema.description,
-    parameters: schema.parameters,
-  },
-}));
-
-// Create OpenRouter client
-const client = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
+// Create OpenRouter provider
+const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
@@ -99,6 +89,30 @@ const standaloneTools: Record<string, (params: any) => Promise<any>> = {
   getNodeTemplate,
 };
 
+// Build AI SDK tools from schemas
+const aiTools = Object.fromEntries(
+  allToolSchemas.map((schema) => [
+    schema.name,
+    tool({
+      description: schema.description,
+      inputSchema: jsonSchema(schema.parameters),
+      execute: async (params) => {
+        const name = schema.name;
+        try {
+          if (name in contextTools) {
+            return await contextTools[name](ctx, params);
+          } else if (name in standaloneTools) {
+            return await standaloneTools[name](params);
+          }
+          return { success: false, error: `Unknown tool: ${name}` };
+        } catch (error) {
+          return { success: false, error: String(error) };
+        }
+      },
+    }),
+  ])
+);
+
 // Readline interface for user input
 const rl = readline.createInterface({
   input: process.stdin,
@@ -112,77 +126,54 @@ function prompt(question: string): Promise<string> {
 }
 
 // Conversation state
-const messages: OpenAI.ChatCompletionMessageParam[] = [];
+const messages: CoreMessage[] = [];
 
 async function chat(userMessage: string): Promise<void> {
   messages.push({ role: "user", content: userMessage });
 
-  while (true) {
-    const response = await client.chat.completions.create({
-      model: "minimax/minimax-m2.1",
-      messages: [{ role: "system", content: systemPrompt }, ...messages],
-      tools,
-      tool_choice: "auto",
-    });
-
-    const choice = response.choices[0];
-    const assistantMessage = choice.message;
-
-    // Add assistant message to history
-    messages.push(assistantMessage);
-
-    // Print text content if any
-    if (assistantMessage.content) {
-      console.log(`\n\x1b[36mAgent:\x1b[0m ${assistantMessage.content}\n`);
-    }
-
-    // Check for tool calls
-    if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
-      for (const toolCall of assistantMessage.tool_calls) {
-        if (!("function" in toolCall)) continue;
-        const funcName = toolCall.function.name;
-        const funcArgs = JSON.parse(toolCall.function.arguments);
-
-        console.log(`\n\x1b[33m--- Tool Call: ${funcName} ---\x1b[0m`);
-        console.log(
-          `\x1b[90mArguments: ${JSON.stringify(funcArgs, null, 2)}\x1b[0m\n`
-        );
-
-        let result: any;
-        try {
-          if (funcName in contextTools) {
-            result = await contextTools[funcName](ctx, funcArgs);
-          } else if (funcName in standaloneTools) {
-            result = await standaloneTools[funcName](funcArgs);
-          } else {
-            result = { success: false, error: `Unknown tool: ${funcName}` };
-          }
-        } catch (error) {
-          result = { success: false, error: String(error) };
+  const result = await generateText({
+    model: openrouter("minimax/minimax-m2.1"),
+    system: systemPrompt,
+    messages,
+    tools: aiTools,
+    stopWhen: stepCountIs(20), // Max 20 tool call iterations
+    onStepFinish: ({ toolCalls, toolResults, text }) => {
+      // Log tool calls for visibility
+      if (toolCalls && toolCalls.length > 0) {
+        for (const call of toolCalls) {
+          console.log(`\n\x1b[33m--- Tool Call: ${call.toolName} ---\x1b[0m`);
+          console.log(
+            `\x1b[90mInput: ${JSON.stringify(call.input, null, 2)}\x1b[0m\n`
+          );
         }
-
-        console.log(
-          `\x1b[90mResult: ${JSON.stringify(result, null, 2)}\x1b[0m\n`
-        );
-
-        // Add tool result to messages
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(result),
-        });
       }
-      // Continue the loop to let the model process tool results
-    } else {
-      // No tool calls, conversation turn complete
-      break;
-    }
+      // Log tool results
+      if (toolResults && toolResults.length > 0) {
+        for (const res of toolResults) {
+          console.log(
+            `\x1b[90mOutput: ${JSON.stringify(res.output, null, 2)}\x1b[0m\n`
+          );
+        }
+      }
+      // Log intermediate text
+      if (text) {
+        console.log(`\x1b[90m[Intermediate]: ${text}\x1b[0m`);
+      }
+    },
+  });
+
+  // Add assistant response to history
+  messages.push(...result.response.messages);
+
+  // Print final text
+  if (result.text) {
+    console.log(`\n\x1b[36mAgent:\x1b[0m ${result.text}\n`);
   }
 }
 
 async function main() {
   console.log("\x1b[35m=== Workflow Agent Test Console ===\x1b[0m");
-  console.log("Model: minimax/minimax-m2.1 via OpenRouter");
+  console.log("Model: minimax/minimax-m2.1 via OpenRouter (Vercel AI SDK)");
   console.log('Type your message, "quit" to exit\n');
 
   // Optional: inject initial context

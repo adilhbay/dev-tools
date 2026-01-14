@@ -99,6 +99,8 @@ catalog:
   id128: 1.6.6
   jiti: 2.6.1
   nx: 22.3.3
+  '@openrouter/ai-sdk-provider': 1.5.4
+  ai: 6.0.31
   openai: 6.16.0
   prettier: 3.7.4
   react: 19.2.3

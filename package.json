@@ -20,6 +20,8 @@
     "eslint": "catalog:",
     "jiti": "catalog:",
     "nx": "catalog:",
+    "@openrouter/ai-sdk-provider": "catalog:",
+    "ai": "catalog:",
     "openai": "catalog:",
     "prettier": "catalog:",
     "react": "catalog:",
