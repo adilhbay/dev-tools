@@ -86,16 +86,25 @@ export const getExecutionHistorySchema = {
 
 export const getExecutionLogsSchema = {
   name: 'getExecutionLogs',
-  description: 'Get detailed logs from a specific workflow execution.',
+  description:
+    'Get the latest execution logs. Returns only the most recent execution per node to avoid showing full history.',
   parameters: {
     type: 'object' as const,
     properties: {
+      flowId: {
+        type: 'string',
+        description: 'Filter to only show executions for nodes in this workflow',
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum number of node executions to return (default: 10)',
+      },
       executionId: {
         type: 'string',
-        description: 'The ULID of the execution to get logs for',
+        description: 'Optional: specific execution ID to get logs for',
       },
     },
-    required: ['executionId'],
+    required: [],
   },
 };
 

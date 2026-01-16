@@ -19,7 +19,8 @@ export const createJsNodeSchema = {
       },
       code: {
         type: 'string',
-        description: 'JavaScript code to execute. Has access to `input` (previous node output) and must return a value.',
+        description:
+          'The function body only (NOT the full export). The tool automatically wraps it with "export default function(ctx) { ... }". ctx contains the previous node output. Example: return { result: ctx.input * 2 }',
       },
       position: {
         type: 'object',
@@ -189,7 +190,8 @@ export const updateNodeCodeSchema = {
       },
       code: {
         type: 'string',
-        description: 'New JavaScript code',
+        description:
+          'The function body only (NOT the full export). The tool automatically wraps it with "export default function(ctx) { ... }". ctx contains the previous node output.',
       },
     },
     required: ['nodeId', 'code'],

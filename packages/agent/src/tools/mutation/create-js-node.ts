@@ -40,12 +40,13 @@ export async function createJsNode(
       ],
     });
 
-    // Insert the JS-specific configuration
+    // Insert the JS-specific configuration (wrap code with export default function)
+    const wrappedCode = `export default function(ctx) {\n${params.code}\n}`;
     await client['nodeJsInsert']({
       items: [
         {
           nodeId: nodeIdBytes,
-          code: params.code,
+          code: wrappedCode,
         },
       ],
     });

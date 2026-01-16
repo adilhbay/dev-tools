@@ -16,11 +16,13 @@ export async function updateNodeCode(ctx: ToolContext, params: UpdateNodeCodePar
     const client = createClient(FlowService, ctx.transport);
     const nodeIdBytes = ulidToBytes(params.nodeId);
 
+    // Wrap code with export default function
+    const wrappedCode = `export default function(ctx) {\n${params.code}\n}`;
     await client['nodeJsUpdate']({
       items: [
         {
           nodeId: nodeIdBytes,
-          code: params.code,
+          code: wrappedCode,
         },
       ],
     });

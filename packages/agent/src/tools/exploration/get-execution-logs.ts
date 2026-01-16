@@ -4,7 +4,9 @@ import type { FlowItemStateType, ToolContext, ToolResult } from '../../types.ts'
 import { bytesToUlid, flowItemStateToString } from '../../utils.ts';
 
 export interface GetExecutionLogsParams {
-  executionId: string;
+  executionId?: string;
+  flowId?: string;
+  limit?: number;
 }
 
 export interface ExecutionLogEntry {
@@ -29,18 +31,46 @@ export interface ExecutionLogsResult {
  */
 export async function getExecutionLogs(
   ctx: ToolContext,
-  _params: GetExecutionLogsParams,
+  params: GetExecutionLogsParams,
 ): Promise<ToolResult<ExecutionLogsResult>> {
   try {
     const client = createClient(FlowService, ctx.transport);
 
-    // Fetch all node executions
-    const response = await client['nodeExecutionCollection']({});
+    // Fetch node executions and nodes to filter by flow
+    const [execResponse, nodeResponse] = await Promise.all([
+      client['nodeExecutionCollection']({}),
+      params.flowId ? client['nodeCollection']({}) : Promise.resolve({ items: [] }),
+    ]);
 
-    // For now, we return all executions as the API doesn't seem to have
-    // a clear execution grouping mechanism. In practice, you'd filter
-    // by a specific run ID or time range.
-    const logs = response.items.map((exec: NodeExecution) => {
+    // Build a set of node IDs that belong to this flow (if flowId provided)
+    const flowNodeIds = params.flowId
+      ? new Set(
+          nodeResponse.items
+            .filter((n: { flowId: Uint8Array }) => bytesToUlid(n.flowId) === params.flowId)
+            .map((n: { nodeId: Uint8Array }) => bytesToUlid(n.nodeId)),
+        )
+      : null;
+
+    // Filter executions by flow and get only the latest per node
+    const latestByNode = new Map<string, NodeExecution>();
+    for (const exec of execResponse.items) {
+      const nodeId = bytesToUlid(exec.nodeId);
+
+      // Skip if filtering by flow and node doesn't belong to this flow
+      if (flowNodeIds && !flowNodeIds.has(nodeId)) continue;
+
+      // Keep only the latest execution per node (sorted by completedAt)
+      const existing = latestByNode.get(nodeId);
+      if (!existing || (exec.completedAt && existing.completedAt && exec.completedAt.seconds > existing.completedAt.seconds)) {
+        latestByNode.set(nodeId, exec);
+      }
+    }
+
+    // Apply limit (default: 10)
+    const limit = params.limit ?? 10;
+    const limitedExecutions = Array.from(latestByNode.values()).slice(0, limit);
+
+    const logs = limitedExecutions.map((exec: NodeExecution) => {
       const entry: ExecutionLogEntry = {
         nodeExecutionId: bytesToUlid(exec.nodeExecutionId),
         nodeId: bytesToUlid(exec.nodeId),
