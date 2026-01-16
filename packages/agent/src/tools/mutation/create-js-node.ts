@@ -2,6 +2,7 @@ import { createClient } from '@connectrpc/connect';
 import { FlowService, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import type { Position, ToolContext, ToolResult } from '../../types.ts';
 import { bytesToUlid, generateUlidBytes, ulidToBytes } from '../../utils.ts';
+import { validateJsFunctionBody } from './validate-js-code.ts';
 
 export interface CreateJsNodeParams {
   flowId: string;
@@ -21,6 +22,15 @@ export async function createJsNode(
   ctx: ToolContext,
   params: CreateJsNodeParams,
 ): Promise<ToolResult<CreateJsNodeResult>> {
+  // Validate the function body before proceeding
+  const validation = validateJsFunctionBody(params.code);
+  if (!validation.valid) {
+    return {
+      success: false,
+      error: validation.error,
+    };
+  }
+
   try {
     const client = createClient(FlowService, ctx.transport);
     const nodeIdBytes = generateUlidBytes();

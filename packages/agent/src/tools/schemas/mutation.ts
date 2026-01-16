@@ -20,7 +20,7 @@ export const createJsNodeSchema = {
       code: {
         type: 'string',
         description:
-          'The function body only (NOT the full export). The tool automatically wraps it with "export default function(ctx) { ... }". ctx contains the previous node output. Example: return { result: ctx.input * 2 }',
+          'The function body only. Write code directly - do NOT define inner functions. Use ctx for input. MUST have a return statement. The tool auto-wraps with "export default function(ctx) { ... }". Example: "const result = ctx.value * 2; return { result };"',
       },
       position: {
         type: 'object',
@@ -191,7 +191,7 @@ export const updateNodeCodeSchema = {
       code: {
         type: 'string',
         description:
-          'The function body only (NOT the full export). The tool automatically wraps it with "export default function(ctx) { ... }". ctx contains the previous node output.',
+          'The function body only. Write code directly - do NOT define inner functions. Use ctx for input. MUST have a return statement. The tool auto-wraps with "export default function(ctx) { ... }". Example: "const result = ctx.value * 2; return { result };"',
       },
     },
     required: ['nodeId', 'code'],
@@ -227,7 +227,8 @@ export const updateNodeConfigSchema = {
 
 export const connectNodesSchema = {
   name: 'connectNodes',
-  description: 'Create an edge connection between two nodes.',
+  description:
+    'Create an edge connection between two nodes. IMPORTANT: For sequential flows (Manual Start, JS, HTTP nodes), do NOT specify sourceHandle - omit it entirely. Only use sourceHandle for Condition nodes (then/else) and Loop nodes (loop/then).',
   parameters: {
     type: 'object' as const,
     properties: {
@@ -246,7 +247,8 @@ export const connectNodesSchema = {
       sourceHandle: {
         type: 'string',
         enum: ['then', 'else', 'loop'],
-        description: 'Which output handle to connect from (default: "then")',
+        description:
+          'Output handle for branching nodes ONLY. Use "then"/"else" for Condition nodes, "loop"/"then" for For/ForEach nodes. OMIT this parameter for Manual Start, JS, and HTTP nodes.',
       },
     },
     required: ['flowId', 'sourceId', 'targetId'],

@@ -35,12 +35,42 @@ You can create these types of nodes:
 | **ForEach Node** | Iterate over an array | `iteratorPath`: JSONPath to array, optional `condition` |
 | **Manual Start** | Entry point for the workflow | Created automatically, triggers workflow execution |
 
-### Edge Types (Handles)
+### Connecting Nodes (Edges)
 
-When connecting nodes, the `sourceHandle` determines which output:
-- **THEN**: Default/success path (use for most connections)
-- **ELSE**: Condition node's false branch
-- **LOOP**: Loop node's iteration body
+When calling `connectNodes()`, the `sourceHandle` parameter controls which output port to use.
+
+**For most connections: Do NOT specify sourceHandle**
+
+Sequential flows between regular nodes should omit the `sourceHandle` parameter entirely:
+- Manual Start → JS Node: `connectNodes({flowId, sourceId, targetId})` (no sourceHandle)
+- JS Node → HTTP Node: `connectNodes({flowId, sourceId, targetId})` (no sourceHandle)
+- HTTP Node → JS Node: `connectNodes({flowId, sourceId, targetId})` (no sourceHandle)
+
+**Only specify sourceHandle for branching/loop nodes:**
+
+| Source Node Type | Handle | Purpose |
+|-----------------|--------|---------|
+| Condition Node | `then` | The TRUE branch (condition evaluates to true) |
+| Condition Node | `else` | The FALSE branch (condition evaluates to false) |
+| For/ForEach Node | `loop` | The iteration body (nodes that run each iteration) |
+| For/ForEach Node | `then` | After loop completion (nodes that run after all iterations) |
+
+**Examples:**
+```
+// Sequential flow - NO sourceHandle
+connectNodes({flowId, sourceId: startNode, targetId: fetchNode})
+connectNodes({flowId, sourceId: fetchNode, targetId: transformNode})
+
+// Condition branching - explicit handles required
+connectNodes({flowId, sourceId: conditionNode, targetId: successPath, sourceHandle: 'then'})
+connectNodes({flowId, sourceId: conditionNode, targetId: errorPath, sourceHandle: 'else'})
+
+// Loop structure - explicit handles required
+connectNodes({flowId, sourceId: forEachNode, targetId: loopBody, sourceHandle: 'loop'})
+connectNodes({flowId, sourceId: forEachNode, targetId: afterLoop, sourceHandle: 'then'})
+```
+
+**IMPORTANT**: Using `sourceHandle: 'then'` on a Manual Start, JS, or HTTP node will cause the connection to be ignored during execution. Always omit sourceHandle for these node types.
 
 ### Data Flow
 
