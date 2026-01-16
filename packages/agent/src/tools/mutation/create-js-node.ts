@@ -3,6 +3,7 @@ import { FlowService, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_
 import type { Position, ToolContext, ToolResult } from '../../types.ts';
 import { bytesToUlid, generateUlidBytes, ulidToBytes } from '../../utils.ts';
 import { validateJsFunctionBody } from './validate-js-code.ts';
+import { wrapJsFunctionBody } from './wrap-js-code.ts';
 
 export interface CreateJsNodeParams {
   flowId: string;
@@ -50,8 +51,8 @@ export async function createJsNode(
       ],
     });
 
-    // Insert the JS-specific configuration (wrap code with export default function)
-    const wrappedCode = `export default function(ctx) {\n${params.code}\n}`;
+    // Insert the JS-specific configuration (wrap code with async function and helpers)
+    const wrappedCode = wrapJsFunctionBody(params.code);
     await client['nodeJsInsert']({
       items: [
         {

@@ -3,6 +3,7 @@ import { FlowService } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import type { ToolContext, ToolResult } from '../../types.ts';
 import { ulidToBytes } from '../../utils.ts';
 import { validateJsFunctionBody } from './validate-js-code.ts';
+import { wrapJsFunctionBody } from './wrap-js-code.ts';
 
 export interface UpdateNodeCodeParams {
   nodeId: string;
@@ -26,8 +27,8 @@ export async function updateNodeCode(ctx: ToolContext, params: UpdateNodeCodePar
     const client = createClient(FlowService, ctx.transport);
     const nodeIdBytes = ulidToBytes(params.nodeId);
 
-    // Wrap code with export default function
-    const wrappedCode = `export default function(ctx) {\n${params.code}\n}`;
+    // Wrap code with async function and helpers
+    const wrappedCode = wrapJsFunctionBody(params.code);
     await client['nodeJsUpdate']({
       items: [
         {
