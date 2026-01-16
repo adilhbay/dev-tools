@@ -108,6 +108,74 @@ export const getExecutionLogsSchema = {
   },
 };
 
+// ============================================================================
+// API Documentation Schemas
+// ============================================================================
+
+export const searchApiDocsSchema = {
+  name: 'searchApiDocs',
+  description:
+    'Search for API documentation by name, description, or keywords. Returns lightweight metadata for matching APIs. Use getApiDocs to load full documentation for a specific API.',
+  parameters: {
+    type: 'object' as const,
+    properties: {
+      query: {
+        type: 'string',
+        description:
+          'Search query - API name, description keywords, or use case (e.g., "send message", "payment", "telegram bot")',
+      },
+      category: {
+        type: 'string',
+        description:
+          'Optional category filter: messaging, payments, project-management, storage, database, email, calendar, crm, social, analytics, developer',
+        enum: [
+          'messaging',
+          'payments',
+          'project-management',
+          'storage',
+          'database',
+          'email',
+          'calendar',
+          'crm',
+          'social',
+          'analytics',
+          'developer',
+        ],
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum results to return (default: 5)',
+      },
+    },
+    required: ['query'],
+  },
+};
+
+export const getApiDocsSchema = {
+  name: 'getApiDocs',
+  description:
+    'Load full documentation for a specific API. Call this after searchApiDocs to get complete endpoint details, authentication info, and examples.',
+  parameters: {
+    type: 'object' as const,
+    properties: {
+      apiId: {
+        type: 'string',
+        description: 'API identifier from search results (e.g., "slack", "stripe", "telegram")',
+      },
+      forceRefresh: {
+        type: 'boolean',
+        description: 'Force refresh from source, bypassing cache',
+      },
+      endpoint: {
+        type: 'string',
+        description:
+          'Optional filter to focus on specific endpoint (e.g., "chat.postMessage", "sendMessage")',
+      },
+    },
+    required: ['apiId'],
+  },
+};
+
 export const explorationSchemas = [
   getWorkflowGraphSchema,
   getNodeDetailsSchema,
@@ -115,4 +183,6 @@ export const explorationSchemas = [
   searchTemplatesSchema,
   getExecutionHistorySchema,
   getExecutionLogsSchema,
+  searchApiDocsSchema,
+  getApiDocsSchema,
 ];

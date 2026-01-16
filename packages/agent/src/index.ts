@@ -20,3 +20,6 @@ export * from './tools/index.ts';
 
 // Template system
 export * from './templates/index.ts';
+
+// API Documentation system
+export * from './api-docs/index.ts';

@@ -17,6 +17,9 @@ import {
   searchTemplates,
   getExecutionHistory,
   getExecutionLogs,
+  // API Documentation tools
+  searchApiDocs,
+  getApiDocs,
   // Mutation tools
   createJsNode,
   createHttpNode,
@@ -87,6 +90,9 @@ const contextTools: Record<
 const standaloneTools: Record<string, (params: any) => Promise<any>> = {
   searchTemplates,
   getNodeTemplate,
+  // API Documentation tools
+  searchApiDocs,
+  getApiDocs,
 };
 
 // Build AI SDK tools from schemas
