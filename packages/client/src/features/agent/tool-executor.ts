@@ -5,6 +5,7 @@ import { request } from '~/shared/api';
 import type { FlowContextData, ToolCall, ToolResult } from './types';
 
 type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection>['utils'];
+type CollectionData = ReturnType<typeof import('~/shared/api').useApiCollection>;
 
 interface Collections {
   nodeCollection: { utils: CollectionUtils };
@@ -14,6 +15,7 @@ interface Collections {
   conditionCollection: { utils: CollectionUtils };
   forCollection: { utils: CollectionUtils };
   forEachCollection: { utils: CollectionUtils };
+  executionCollection: CollectionData;
 }
 
 interface ToolExecutorContext {
@@ -64,6 +66,7 @@ const executeToolInternal = async (
     conditionCollection,
     forCollection,
     forEachCollection,
+    executionCollection,
   } = collections;
 
   switch (name) {
@@ -103,6 +106,76 @@ const executeToolInternal = async (
       const variable = flowContext.variables.find((v) => v.id === flowVariableId);
       if (!variable) throw new Error(`Variable not found: ${flowVariableId}`);
       return variable;
+    }
+
+    case 'getNodeExecutions': {
+      // Handle both nodeId (preferred) and nodeExecutionId (from generated schema)
+      let nodeId = args.nodeId as string | undefined;
+
+      // If nodeExecutionId is provided instead, find the node it belongs to
+      if (!nodeId && args.nodeExecutionId) {
+        const executionId = args.nodeExecutionId as string;
+        const execution = flowContext.executions.find((e) => e.id === executionId);
+        if (execution) {
+          nodeId = execution.nodeId;
+        } else {
+          return { executions: [], message: `Execution not found: ${executionId}` };
+        }
+      }
+
+      if (!nodeId) {
+        return { executions: [], message: 'No nodeId or nodeExecutionId provided' };
+      }
+
+      // Get executions for this node from the context
+      const executions = flowContext.executions
+        .filter((e) => e.nodeId === nodeId)
+        .sort((a, b) => {
+          // Sort by completion time descending (most recent first)
+          if (!a.completedAt && !b.completedAt) return 0;
+          if (!a.completedAt) return 1;
+          if (!b.completedAt) return -1;
+          return new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime();
+        });
+
+      if (executions.length === 0) {
+        return { executions: [], message: 'No execution history found for this node' };
+      }
+
+      return {
+        executions: executions.map((e) => ({
+          id: e.id,
+          name: e.name,
+          state: e.state,
+          error: e.error,
+          completedAt: e.completedAt,
+        })),
+      };
+    }
+
+    case 'getFailedNodes': {
+      const failedNodes = flowContext.nodes.filter((n) => n.state === 'Failure');
+      const failedExecutions = flowContext.executions.filter((e) => e.state === 'Failure');
+
+      return {
+        failedNodes: failedNodes.map((n) => ({
+          id: n.id,
+          name: n.name,
+          kind: n.kind,
+          state: n.state,
+          info: n.info,
+        })),
+        failedExecutions: failedExecutions.map((e) => {
+          const node = flowContext.nodes.find((n) => n.id === e.nodeId);
+          return {
+            nodeId: e.nodeId,
+            nodeName: node?.name,
+            executionId: e.id,
+            error: e.error,
+            completedAt: e.completedAt,
+          };
+        }),
+      };
     }
 
     case 'createJsNode': {

@@ -34,6 +34,7 @@ export interface FlowContextData {
   nodes: NodeInfo[];
   edges: EdgeInfo[];
   variables: VariableInfo[];
+  executions: NodeExecutionInfo[];
 }
 
 export interface NodeInfo {
@@ -41,6 +42,17 @@ export interface NodeInfo {
   name: string;
   kind: string;
   position: { x: number; y: number };
+  state: string;
+  info?: string;
+}
+
+export interface NodeExecutionInfo {
+  id: string;
+  nodeId: string;
+  name: string;
+  state: string;
+  error?: string;
+  completedAt?: string;
 }
 
 export interface EdgeInfo {

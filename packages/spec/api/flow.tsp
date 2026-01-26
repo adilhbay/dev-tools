@@ -231,13 +231,15 @@ model NodeAiMemory {
   memoryType: AiMemoryType;
   windowSize: int32;
 }
+
+@AITools.explorationTool(#{ name: "GetNodeExecutions", title: "Get Node Executions", description: "Get the execution history for a node by its ID. Returns all executions including their state (Running, Success, Failure, Canceled) and error messages for failed executions. Use this to diagnose why a node failed." })
 @TanStackDB.collection(#{ isReadOnly: true })
 model NodeExecution {
   @primaryKey nodeExecutionId: Id;
   @foreignKey nodeId: Id;
   name: string;
   state: FlowItemState;
-  error?: string;
+  @doc("Error message if the node execution failed") error?: string;
   input?: Protobuf.WellKnown.Json;
   output?: Protobuf.WellKnown.Json;
   httpResponseId?: Id;
