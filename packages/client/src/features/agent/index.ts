@@ -10,4 +10,5 @@ export type {
   NodeInfo,
   EdgeInfo,
   VariableInfo,
+  NodeExecutionInfo,
 } from './types';

@@ -6,6 +6,7 @@ import {
   FlowVariableCollectionSchema,
   NodeCollectionSchema,
   NodeConditionCollectionSchema,
+  NodeExecutionCollectionSchema,
   NodeForCollectionSchema,
   NodeForEachCollectionSchema,
   NodeJsCollectionSchema,
@@ -24,7 +25,7 @@ import {
 
 const openai = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: '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',
+  apiKey: VITE_OPENROUTER_API_KEY,
   dangerouslyAllowBrowser: true,
 });
 
@@ -57,6 +58,7 @@ export const useAgentChat = ({ flowId }: UseAgentChatOptions) => {
   const conditionCollection = useApiCollection(NodeConditionCollectionSchema);
   const forCollection = useApiCollection(NodeForCollectionSchema);
   const forEachCollection = useApiCollection(NodeForEachCollectionSchema);
+  const executionCollection = useApiCollection(NodeExecutionCollectionSchema);
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -72,6 +74,7 @@ export const useAgentChat = ({ flowId }: UseAgentChatOptions) => {
         conditionCollection,
         forCollection,
         forEachCollection,
+        executionCollection,
       };
 
       const toolContext: ToolExecutorContext = {
@@ -195,7 +198,7 @@ export const useAgentChat = ({ flowId }: UseAgentChatOptions) => {
         }));
       }
     },
-    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, state.messages],
+    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, executionCollection, state.messages],
   );
 
   const clearMessages = useCallback(() => {
