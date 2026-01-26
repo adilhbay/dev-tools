@@ -8,7 +8,7 @@ import { PropsWithChildren, ReactNode, use, useRef, useState } from 'react';
 import { useDrop } from 'react-aria';
 import { Button as AriaButton, Dialog, MenuTrigger, useDragAndDrop } from 'react-aria-components';
 import { createPortal } from 'react-dom';
-import { FiClock, FiMinus, FiMoreHorizontal, FiPlus, FiStopCircle, FiX } from 'react-icons/fi';
+import { FiClock, FiCpu, FiMinus, FiMoreHorizontal, FiPlus, FiStopCircle, FiX } from 'react-icons/fi';
 import { twJoin } from 'tailwind-merge';
 import { FileKind } from '@the-dev-tools/spec/buf/api/file_system/v1/file_system_pb';
 import {
@@ -49,6 +49,7 @@ import { request, useApiCollection } from '~/shared/api';
 import { getNextOrder, handleCollectionReorder, pick, queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
 import { AddNodeSidebar } from './add-node';
+import { AgentSidebar } from './agent-sidebar';
 import { FlowContext } from './context';
 import { ConnectionLine, edgeTypes, useEdgeState } from './edge';
 import { useNodesState } from './node';
@@ -404,6 +405,11 @@ const ActionBar = () => {
       <Button className={tw`px-1.5 py-1`} onPress={() => void setSidebar?.(<AddNodeSidebar />)} variant='ghost dark'>
         <FiPlus className={tw`size-5 text-slate-300`} />
         Add Node
+      </Button>
+
+      <Button className={tw`px-1.5 py-1`} onPress={() => void setSidebar?.(<AgentSidebar />)} variant='ghost dark'>
+        <FiCpu className={tw`size-5 text-slate-300`} />
+        AI Agent
       </Button>
 
       {running ? (
