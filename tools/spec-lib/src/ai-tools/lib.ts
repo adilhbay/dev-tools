@@ -75,6 +75,7 @@ function mutationTool({ program }: DecoratorContext, target: Model, ...tools: Ra
 
 export interface ExplorationToolOptions {
   description?: string | undefined;
+  keyField?: string | undefined;
   name: string;
   title: string;
 }
@@ -83,6 +84,7 @@ export const explorationTools = makeStateMap<Model, ExplorationToolOptions[]>('e
 
 interface RawExplorationToolOptions {
   description?: string;
+  keyField?: string;
   name: string;
   title: string;
 }
@@ -90,6 +92,7 @@ interface RawExplorationToolOptions {
 function explorationTool({ program }: DecoratorContext, target: Model, ...tools: RawExplorationToolOptions[]) {
   const resolved: ExplorationToolOptions[] = tools.map((tool) => ({
     description: tool.description,
+    keyField: tool.keyField,
     name: tool.name,
     title: tool.title,
   }));

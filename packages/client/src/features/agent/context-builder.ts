@@ -109,6 +109,8 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
       name: e.name,
       state: FLOW_ITEM_STATE_NAMES[e.state] ?? 'Idle',
       error: e.error ?? undefined,
+      input: e.input ?? undefined,
+      output: e.output ?? undefined,
       completedAt: e.completedAt instanceof Date ? e.completedAt.toISOString() : e.completedAt,
     }));
 
@@ -182,5 +184,6 @@ IMPORTANT RULES:
 5. Use connectSequentialNodes for ManualStart, JavaScript, and HTTP nodes.
 6. Use connectBranchingNodes for Condition, For, and ForEach nodes (requires sourceHandle: "then", "else", or "loop").
 7. Always confirm what you did after executing tools.
-8. If a node has State: Failure, use getNodeExecutions to get detailed error information.`;
+8. If a node has State: Failure, use getNodeExecutions to get detailed error information.
+9. Use getNodeOutput to inspect the input/output data of a node's most recent execution.`;
 };

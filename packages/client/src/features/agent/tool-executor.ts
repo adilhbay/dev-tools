@@ -153,6 +153,34 @@ const executeToolInternal = async (
       };
     }
 
+    case 'getNodeOutput': {
+      const nodeId = args.nodeId as string;
+      const executions = flowContext.executions
+        .filter((e) => e.nodeId === nodeId && e.state !== 'Running')
+        .sort((a, b) => {
+          if (!a.completedAt && !b.completedAt) return 0;
+          if (!a.completedAt) return 1;
+          if (!b.completedAt) return -1;
+          return new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime();
+        });
+
+      if (executions.length === 0) {
+        const node = flowContext.nodes.find((n) => n.id === nodeId);
+        return { nodeId, nodeName: node?.name, message: 'No completed executions found for this node' };
+      }
+
+      const latest = executions[0]!;
+      const node = flowContext.nodes.find((n) => n.id === nodeId);
+      return {
+        nodeId,
+        nodeName: node?.name,
+        executionId: latest.id,
+        state: latest.state,
+        input: latest.input,
+        output: latest.output,
+      };
+    }
+
     case 'getFailedNodes': {
       const failedNodes = flowContext.nodes.filter((n) => n.state === 'Failure');
       const failedExecutions = flowContext.executions.filter((e) => e.state === 'Failure');
