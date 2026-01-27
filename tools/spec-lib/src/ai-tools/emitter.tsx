@@ -132,9 +132,9 @@ function resolveExplorationTools(program: Program): ResolvedTool[] {
 
       tools.push({
         description: toolDef.description,
-        name: toolDef.name,
+        name: toolDef.name!,
         properties,
-        title: toolDef.title,
+        title: toolDef.title!,
       });
     }
   }
@@ -153,7 +153,7 @@ function resolveMutationTools(program: Program): ResolvedTool[] {
         description: toolDef.description,
         name,
         properties,
-        title: toolDef.title,
+        title: toolDef.title!,
       });
     }
   }

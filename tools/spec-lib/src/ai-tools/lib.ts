@@ -39,6 +39,10 @@ function aiTool({ program }: DecoratorContext, target: Model, options: RawAITool
   });
 }
 
+function pascalToWords(name: string): string[] {
+  return name.replace(/([a-z])([A-Z])/g, '$1 $2').split(' ');
+}
+
 export type CrudOperation = 'Delete' | 'Insert' | 'Update';
 
 export interface MutationToolOptions {
@@ -47,7 +51,7 @@ export interface MutationToolOptions {
   name?: string | undefined;
   operation: CrudOperation;
   parent?: string | undefined;
-  title: string;
+  title?: string | undefined;
 }
 
 export const mutationTools = makeStateMap<Model, MutationToolOptions[]>('mutationTools');
@@ -58,26 +62,32 @@ interface RawMutationToolOptions {
   name?: string;
   operation: EnumValue;
   parent?: string;
-  title: string;
+  title?: string;
 }
 
 function mutationTool({ program }: DecoratorContext, target: Model, ...tools: RawMutationToolOptions[]) {
-  const resolved: MutationToolOptions[] = tools.map((tool) => ({
-    description: tool.description,
-    exclude: tool.exclude,
-    name: tool.name,
-    operation: tool.operation.value.name as CrudOperation,
-    parent: tool.parent,
-    title: tool.title,
-  }));
+  const words = pascalToWords(target.name);
+  const spacedName = words.join(' ');
+
+  const resolved: MutationToolOptions[] = tools.map((tool) => {
+    const operation = tool.operation.value.name as CrudOperation;
+    return {
+      description: tool.description,
+      exclude: tool.exclude,
+      name: tool.name ?? `${operation}${target.name}`,
+      operation,
+      parent: tool.parent,
+      title: tool.title ?? `${operation} ${spacedName}`,
+    };
+  });
   mutationTools(program).set(target, resolved);
 }
 
 export interface ExplorationToolOptions {
   description?: string | undefined;
   keyField?: string | undefined;
-  name: string;
-  title: string;
+  name?: string | undefined;
+  title?: string | undefined;
 }
 
 export const explorationTools = makeStateMap<Model, ExplorationToolOptions[]>('explorationTools');
@@ -85,16 +95,21 @@ export const explorationTools = makeStateMap<Model, ExplorationToolOptions[]>('e
 interface RawExplorationToolOptions {
   description?: string;
   keyField?: string;
-  name: string;
-  title: string;
+  name?: string;
+  title?: string;
 }
 
 function explorationTool({ program }: DecoratorContext, target: Model, ...tools: RawExplorationToolOptions[]) {
-  const resolved: ExplorationToolOptions[] = tools.map((tool) => ({
-    description: tool.description,
+  const words = pascalToWords(target.name);
+  const spacedName = words.join(' ');
+
+  const effectiveTools = tools.length > 0 ? tools : [{}];
+
+  const resolved: ExplorationToolOptions[] = effectiveTools.map((tool) => ({
+    description: tool.description ?? `Get a ${spacedName.toLowerCase()} by its primary key.`,
     keyField: tool.keyField,
-    name: tool.name,
-    title: tool.title,
+    name: tool.name ?? `Get${target.name}`,
+    title: tool.title ?? `Get ${spacedName}`,
   }));
   explorationTools(program).set(target, resolved);
 }
