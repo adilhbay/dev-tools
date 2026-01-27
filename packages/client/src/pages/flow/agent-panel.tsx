@@ -1,5 +1,6 @@
 import { FormEvent, use, useEffect, useRef, useState } from 'react';
 import { FiTrash2, FiX } from 'react-icons/fi';
+import * as XF from '@xyflow/react';
 import Markdown from 'react-markdown';
 import { Button } from '@the-dev-tools/ui/button';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
@@ -8,7 +9,10 @@ import { FlowContext } from './context';
 
 export const AgentPanel = () => {
   const { flowId, setAgentPanelOpen } = use(FlowContext);
-  const { messages, isLoading, error, sendMessage, clearMessages } = useAgentChat({ flowId });
+  const selectedNodeIds = XF.useStore((s) =>
+    s.nodes.filter((n) => n.selected).map((n) => n.id),
+  );
+  const { messages, isLoading, error, sendMessage, clearMessages } = useAgentChat({ flowId, selectedNodeIds });
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -28,8 +32,13 @@ export const AgentPanel = () => {
     <div className={tw`flex h-full flex-col bg-slate-950 font-mono text-sm text-slate-200`}>
       {/* Header */}
       <div className={tw`flex items-center gap-2 border-b border-slate-800 px-3 py-1.5`}>
-        <div className={tw`flex-1 text-xs font-semibold uppercase tracking-widest text-slate-400`}>
+        <div className={tw`flex flex-1 items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-400`}>
           Agent
+          {selectedNodeIds.length > 0 && (
+            <span className={tw`rounded bg-blue-900/50 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-blue-300`}>
+              ● {selectedNodeIds.length} node{selectedNodeIds.length !== 1 ? 's' : ''} selected
+            </span>
+          )}
         </div>
 
         <Button

@@ -181,6 +181,18 @@ const executeToolInternal = async (
       };
     }
 
+    case 'getSelectedNodes': {
+      const selectedIds = flowContext.selectedNodeIds ?? [];
+      if (selectedIds.length === 0) {
+        return { selectedNodes: [], message: 'No nodes are currently selected.' };
+      }
+      const selectedNodes = selectedIds
+        .map((id) => flowContext.nodes.find((n) => n.id === id))
+        .filter((n): n is NonNullable<typeof n> => n != null)
+        .map((n) => ({ id: n.id, name: n.name, kind: n.kind, state: n.state }));
+      return { selectedNodes };
+    }
+
     case 'getFailedNodes': {
       const failedNodes = flowContext.nodes.filter((n) => n.state === 'Failure');
       const failedExecutions = flowContext.executions.filter((e) => e.state === 'Failure');
