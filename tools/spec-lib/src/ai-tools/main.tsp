@@ -36,6 +36,7 @@ namespace DevTools.AITools {
     name: string;
     title: string;
     description?: string;
+    keyField?: string;
   }
 
   extern dec explorationTool(target: Reflection.Model, ...tools: valueof ExplorationToolOptions[]);

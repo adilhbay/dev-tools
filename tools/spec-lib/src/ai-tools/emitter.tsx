@@ -6,7 +6,7 @@ import { Array, String } from 'effect';
 import { join } from 'node:path/posix';
 import { primaryKeys } from '../core/index.jsx';
 import { formatStringLiteral, getFieldSchema } from './field-schema.js';
-import { aiTools, explorationTools, MutationToolOptions, mutationTools, ToolCategory } from './lib.js';
+import { aiTools, ExplorationToolOptions, explorationTools, MutationToolOptions, mutationTools, ToolCategory } from './lib.js';
 
 export const $onEmit = async (context: EmitContext) => {
   const { emitterOutputDir, program } = context;
@@ -103,17 +103,29 @@ function resolveToolProperties(program: Program, collectionModel: Model, toolDef
   }
 }
 
+function resolveExplorationToolProperties(program: Program, model: Model, toolDef: ExplorationToolOptions): ResolvedProperty[] {
+  if (toolDef.keyField) {
+    const prop = model.properties.get(toolDef.keyField);
+    if (prop) {
+      return [{ optional: false, property: prop }];
+    }
+  }
+
+  const properties: ResolvedProperty[] = [];
+  for (const prop of model.properties.values()) {
+    if (primaryKeys(program).has(prop)) {
+      properties.push({ optional: false, property: prop });
+    }
+  }
+  return properties;
+}
+
 function resolveExplorationTools(program: Program): ResolvedTool[] {
   const tools: ResolvedTool[] = [];
 
   for (const [model, toolDefs] of explorationTools(program).entries()) {
     for (const toolDef of toolDefs) {
-      const properties: ResolvedProperty[] = [];
-      for (const prop of model.properties.values()) {
-        if (primaryKeys(program).has(prop)) {
-          properties.push({ optional: false, property: prop });
-        }
-      }
+      const properties = resolveExplorationToolProperties(program, model, toolDef);
       if (properties.length === 0) continue;
 
       tools.push({

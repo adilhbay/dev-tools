@@ -52,6 +52,8 @@ export interface NodeExecutionInfo {
   name: string;
   state: string;
   error?: string;
+  input?: unknown;
+  output?: unknown;
   completedAt?: string;
 }
 
