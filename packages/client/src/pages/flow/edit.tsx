@@ -9,6 +9,7 @@ import { useDrop } from 'react-aria';
 import { Button as AriaButton, Dialog, MenuTrigger, useDragAndDrop } from 'react-aria-components';
 import { createPortal } from 'react-dom';
 import { FiClock, FiCpu, FiMinus, FiMoreHorizontal, FiPlus, FiStopCircle, FiX } from 'react-icons/fi';
+import { Panel as ResizablePanel, Group as PanelGroup } from 'react-resizable-panels';
 import { twJoin } from 'tailwind-merge';
 import { FileKind } from '@the-dev-tools/spec/buf/api/file_system/v1/file_system_pb';
 import {
@@ -33,6 +34,7 @@ import { PlayCircleIcon } from '@the-dev-tools/ui/icons';
 import { Menu, MenuItem, useContextMenuState } from '@the-dev-tools/ui/menu';
 import { Modal, useProgrammaticModal } from '@the-dev-tools/ui/modal';
 import { DropIndicatorHorizontal } from '@the-dev-tools/ui/reorder';
+import { PanelResizeHandle } from '@the-dev-tools/ui/resizable-panel';
 import { Separator } from '@the-dev-tools/ui/separator';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
 import { TextInputField, useEditableTextState } from '@the-dev-tools/ui/text-field';
@@ -49,7 +51,7 @@ import { request, useApiCollection } from '~/shared/api';
 import { getNextOrder, handleCollectionReorder, pick, queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
 import { AddNodeSidebar } from './add-node';
-import { AgentSidebar } from './agent-sidebar';
+import { AgentPanel } from './agent-panel';
 import { FlowContext } from './context';
 import { ConnectionLine, edgeTypes, useEdgeState } from './edge';
 import { useNodesState } from './node';
@@ -75,21 +77,35 @@ export const FlowEditPage = () => {
   const { flowId } = routes.dashboard.workspace.flow.route.useLoaderData();
 
   const [sidebar, setSidebar] = useState<ReactNode>(null);
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
 
   return (
-    <FlowContext.Provider value={{ flowId, setSidebar }}>
+    <FlowContext.Provider value={{ flowId, setSidebar, agentPanelOpen, setAgentPanelOpen }}>
       <XF.ReactFlowProvider>
         <div className={tw`flex h-full flex-col`}>
           <TopBarWithControls />
-          <Flow key={Ulid.construct(flowId).toCanonical()}>
-            <ActionBar />
+          <PanelGroup orientation='vertical'>
+            <ResizablePanel>
+              <Flow key={Ulid.construct(flowId).toCanonical()}>
+                <ActionBar />
 
-            {sidebar && (
-              <XF.Panel className={tw`inset-y-0 w-80 border-l border-slate-200 bg-white`} position='top-right'>
-                {sidebar}
-              </XF.Panel>
+                {sidebar && (
+                  <XF.Panel className={tw`inset-y-0 w-80 border-l border-slate-200 bg-white`} position='top-right'>
+                    {sidebar}
+                  </XF.Panel>
+                )}
+              </Flow>
+            </ResizablePanel>
+
+            {agentPanelOpen && (
+              <>
+                <PanelResizeHandle direction='vertical' />
+                <ResizablePanel defaultSize='30%' minSize='15%' maxSize='60%'>
+                  <AgentPanel />
+                </ResizablePanel>
+              </>
             )}
-          </Flow>
+          </PanelGroup>
         </div>
       </XF.ReactFlowProvider>
     </FlowContext.Provider>
@@ -382,7 +398,7 @@ export const TopBarWithControls = () => {
 };
 
 const ActionBar = () => {
-  const { flowId, setSidebar } = use(FlowContext);
+  const { flowId, setSidebar, setAgentPanelOpen } = use(FlowContext);
   const { transport } = routes.root.useRouteContext();
 
   const flowCollection = useApiCollection(FlowCollectionSchema);
@@ -407,7 +423,7 @@ const ActionBar = () => {
         Add Node
       </Button>
 
-      <Button className={tw`px-1.5 py-1`} onPress={() => void setSidebar?.(<AgentSidebar />)} variant='ghost dark'>
+      <Button className={tw`px-1.5 py-1`} onPress={() => void setAgentPanelOpen?.((prev) => !prev)} variant='ghost dark'>
         <FiCpu className={tw`size-5 text-slate-300`} />
         AI Agent
       </Button>
