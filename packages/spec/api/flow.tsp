@@ -2,7 +2,6 @@ using DevTools;
 
 namespace Api.Flow;
 
-@AITools.explorationTool(#{ name: "ValidateWorkflow", title: "Validate Workflow", description: "Validate a workflow by checking its structure, connections, and node configurations for errors." })
 @TanStackDB.collection
 model Flow {
   @primaryKey flowId: Id;
@@ -233,8 +232,8 @@ model NodeAiMemory {
 }
 
 @AITools.explorationTool(
-  #{ name: "GetNodeExecutions", title: "Get Node Executions", description: "Get the execution history for a node by its ID. Returns all executions including their state (Running, Success, Failure, Canceled) and error messages for failed executions. Use this to diagnose why a node failed." },
-  #{ name: "GetNodeOutput", title: "Get Node Output", description: "Get the input and output data from a node's most recent execution. Use this to inspect what data a node produced or received.", keyField: "nodeId" }
+  #{ description: "Get the execution history for a node by its ID. Returns all executions including their state (Running, Success, Failure, Canceled) and error messages for failed executions. Use this to diagnose why a node failed." },
+  #{ name: "GetNodeOutput", description: "Get the input and output data from a node's most recent execution. Use this to inspect what data a node produced or received.", keyField: "nodeId" }
 )
 @TanStackDB.collection(#{ isReadOnly: true })
 model NodeExecution {
