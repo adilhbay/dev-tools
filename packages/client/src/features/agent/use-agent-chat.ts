@@ -21,11 +21,12 @@ import {
   type Message,
   type OpenAIMessage,
   type ToolCall,
+  type ToolSchema,
 } from './types';
 
 const openai = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: VITE_OPENROUTER_API_KEY,
+  apiKey: 'VITE_OPENROUTER_API_KEY',
   dangerouslyAllowBrowser: true,
 });
 
@@ -33,11 +34,25 @@ const MODEL = 'minimax/minimax-m2.1';
 
 const generateId = () => crypto.randomUUID();
 
+const clientToolSchemas: ToolSchema[] = [
+  {
+    name: 'getSelectedNodes',
+    description: 'Get details of the nodes currently selected by the user on the canvas.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+];
+
 interface UseAgentChatOptions {
   flowId: Uint8Array;
+  selectedNodeIds?: string[];
 }
 
-export const useAgentChat = ({ flowId }: UseAgentChatOptions) => {
+export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) => {
   const [state, setState] = useState<AgentChatState>({
     messages: [],
     isLoading: false,
@@ -47,9 +62,12 @@ export const useAgentChat = ({ flowId }: UseAgentChatOptions) => {
   const { transport } = routes.root.useRouteContext();
   const flowContext = useFlowContext(flowId);
 
-  // Use ref to always access latest flowContext in callbacks
+  // Use refs to always access latest values in callbacks
   const flowContextRef = useRef(flowContext);
   flowContextRef.current = flowContext;
+
+  const selectedNodeIdsRef = useRef(selectedNodeIds);
+  selectedNodeIdsRef.current = selectedNodeIds;
 
   const nodeCollection = useApiCollection(NodeCollectionSchema);
   const edgeCollection = useApiCollection(EdgeCollectionSchema);
@@ -63,7 +81,10 @@ export const useAgentChat = ({ flowId }: UseAgentChatOptions) => {
   const sendMessage = useCallback(
     async (content: string) => {
       // Use ref to get latest flowContext at execution time
-      const currentFlowContext = flowContextRef.current;
+      const currentFlowContext = {
+        ...flowContextRef.current,
+        selectedNodeIds: selectedNodeIdsRef.current,
+      };
 
       // Build context fresh at execution time to avoid stale closures
       const collections: Collections = {
@@ -99,7 +120,7 @@ export const useAgentChat = ({ flowId }: UseAgentChatOptions) => {
 
       try {
         const systemPrompt = buildSystemPrompt(currentFlowContext);
-        const tools = allToolSchemas.map(formatToolAsOpenAI);
+        const tools = [...allToolSchemas, ...clientToolSchemas].map(formatToolAsOpenAI);
 
         const openAIMessages: OpenAIMessage[] = [
           { role: 'system', content: systemPrompt },

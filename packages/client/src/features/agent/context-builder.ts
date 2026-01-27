@@ -174,7 +174,7 @@ CONNECTIONS:
 ${edgesList || '  (no connections)'}
 
 VARIABLES:
-${variablesList || '  (no variables)'}${errorSection}
+${variablesList || '  (no variables)'}${buildSelectedNodesSection(context)}${errorSection}
 
 IMPORTANT RULES:
 1. When creating nodes, always provide a position. Place new nodes below existing ones (increase Y by ~150).
@@ -185,5 +185,23 @@ IMPORTANT RULES:
 6. Use connectBranchingNodes for Condition, For, and ForEach nodes (requires sourceHandle: "then", "else", or "loop").
 7. Always confirm what you did after executing tools.
 8. If a node has State: Failure, use getNodeExecutions to get detailed error information.
-9. Use getNodeOutput to inspect the input/output data of a node's most recent execution.`;
+9. Use getNodeOutput to inspect the input/output data of a node's most recent execution.
+10. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.`;
+};
+
+const buildSelectedNodesSection = (context: FlowContextData): string => {
+  if (!context.selectedNodeIds || context.selectedNodeIds.length === 0) return '';
+
+  const selectedList = context.selectedNodeIds
+    .map((id) => {
+      const node = context.nodes.find((n) => n.id === id);
+      if (!node) return `  - (unknown node, ID: ${id})`;
+      return `  - ${node.name} (ID: ${node.id}, Type: ${node.kind})`;
+    })
+    .join('\n');
+
+  return `
+
+SELECTED NODES (currently selected on canvas):
+${selectedList}`;
 };
