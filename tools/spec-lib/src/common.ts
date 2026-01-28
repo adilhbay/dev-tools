@@ -1,21 +1,8 @@
 /**
- * Common schemas and utilities for tool definitions
- * These are shared building blocks used across multiple tool schemas
- *
- * IMPORTANT: Enums and types are DERIVED from the generated Protobuf types
- * in @the-dev-tools/spec/buf/api/flow/v1/flow_pb to ensure consistency
- * with the TypeSpec definitions.
+ * Common schemas and utilities for tool definitions.
  */
 
 import { Schema } from 'effect';
-
-// =============================================================================
-// Import enums from generated Protobuf (derived from TypeSpec)
-// =============================================================================
-import {
-  ErrorHandling as PbErrorHandling,
-  HandleKind as PbHandleKind,
-} from '../../dist/buf/typescript/api/flow/v1/flow_pb.ts';
 
 // =============================================================================
 // Common Field Schemas
@@ -23,7 +10,6 @@ import {
 
 /**
  * ULID identifier schema - used for all entity IDs
- * Matches the `Id` type in TypeSpec (main.tsp)
  */
 export const UlidId = Schema.String.pipe(
   Schema.pattern(/^[0-9A-HJKMNP-TV-Z]{26}$/),
@@ -36,7 +22,6 @@ export const UlidId = Schema.String.pipe(
 
 /**
  * Flow ID - references a workflow
- * Corresponds to Flow.flowId in flow.tsp
  */
 export const FlowId = UlidId.pipe(
   Schema.annotations({
@@ -47,7 +32,6 @@ export const FlowId = UlidId.pipe(
 
 /**
  * Node ID - references a node within a workflow
- * Corresponds to Node.nodeId in flow.tsp
  */
 export const NodeId = UlidId.pipe(
   Schema.annotations({
@@ -58,7 +42,6 @@ export const NodeId = UlidId.pipe(
 
 /**
  * Edge ID - references an edge connection
- * Corresponds to Edge.edgeId in flow.tsp
  */
 export const EdgeId = UlidId.pipe(
   Schema.annotations({
@@ -68,13 +51,9 @@ export const EdgeId = UlidId.pipe(
 );
 
 // =============================================================================
-// Position Schema (matches Position model in flow.tsp)
+// Position Schema
 // =============================================================================
 
-/**
- * Canvas position for nodes
- * Derived from: model Position { x: float32; y: float32; } in flow.tsp
- */
 export const Position = Schema.Struct({
   x: Schema.Number.pipe(
     Schema.annotations({
@@ -102,68 +81,24 @@ export const OptionalPosition = Schema.optional(
 );
 
 // =============================================================================
-// Enums DERIVED from TypeSpec/Protobuf definitions
+// Enums - hardcoded values (matching protobuf definitions)
+// =============================================================================
+//
+// SYNC WARNING: These values are hardcoded to avoid circular dependencies with
+// packages/spec. They MUST match the protobuf definitions in:
+//   api/flow/v1/flow.proto -> ErrorHandling, HandleKind enums
+//
+// If the protobuf enums change, update these literals accordingly.
 // =============================================================================
 
-/**
- * SAFETY NET: These types and Record<> patterns ensure TypeScript will ERROR
- * if the backend adds new enum values to TypeSpec that we haven't handled.
- *
- * How it works:
- * 1. We exclude UNSPECIFIED (protobuf default) from each enum type
- * 2. We use Record<ExcludedEnum, string> which REQUIRES all enum values as keys
- * 3. If backend adds e.g. PARALLEL to HandleKind, TypeScript errors:
- *    "Property 'PARALLEL' is missing in type..."
- *
- * This turns silent drift into compile-time errors!
- */
-
-// Types that exclude the UNSPECIFIED protobuf default value
-type ValidHandleKind = Exclude<PbHandleKind, PbHandleKind.UNSPECIFIED>;
-type ValidErrorHandling = Exclude<PbErrorHandling, PbErrorHandling.UNSPECIFIED>;
-
-/**
- * Helper: Creates a Schema.Literal from all values in an enum mapping.
- * This ensures the schema automatically includes all mapped values.
- */
-function literalFromValues<T extends Record<number, string>>(mapping: T) {
-  const values = Object.values(mapping) as [string, ...string[]];
-  return Schema.Literal(...values);
-}
-
-/**
- * Error handling strategies for loop nodes
- * Derived from: enum ErrorHandling { Ignore, Break } in flow.tsp
- *
- * EXHAUSTIVE: Record<ValidErrorHandling, string> forces all enum values to be present.
- * If backend adds a new value, TypeScript will error until it's added here.
- */
-const errorHandlingValues: Record<ValidErrorHandling, string> = {
-  [PbErrorHandling.IGNORE]: 'ignore',
-  [PbErrorHandling.BREAK]: 'break',
-};
-
-export const ErrorHandling = literalFromValues(errorHandlingValues).pipe(
+export const ErrorHandling = Schema.Literal('ignore', 'break').pipe(
   Schema.annotations({
     identifier: 'ErrorHandling',
     description: 'How to handle errors: "ignore" continues, "break" stops the loop',
   }),
 );
 
-/**
- * Source handle types for connecting nodes
- * Derived from: enum HandleKind { Then, Else, Loop } in flow.tsp
- *
- * EXHAUSTIVE: Record<ValidHandleKind, string> forces all enum values to be present.
- * If backend adds a new value (e.g., PARALLEL), TypeScript will error until it's added here.
- */
-const handleKindValues: Record<ValidHandleKind, string> = {
-  [PbHandleKind.THEN]: 'then',
-  [PbHandleKind.ELSE]: 'else',
-  [PbHandleKind.LOOP]: 'loop',
-};
-
-export const SourceHandle = literalFromValues(handleKindValues).pipe(
+export const SourceHandle = Schema.Literal('then', 'else', 'loop').pipe(
   Schema.annotations({
     identifier: 'SourceHandle',
     description:
@@ -171,9 +106,6 @@ export const SourceHandle = literalFromValues(handleKindValues).pipe(
   }),
 );
 
-/**
- * API documentation categories
- */
 export const ApiCategory = Schema.Literal(
   'messaging',
   'payments',
@@ -194,12 +126,9 @@ export const ApiCategory = Schema.Literal(
 );
 
 // =============================================================================
-// Display Name Schema
+// Display Name & Code Schemas
 // =============================================================================
 
-/**
- * Display name for nodes
- */
 export const NodeName = Schema.String.pipe(
   Schema.minLength(1),
   Schema.maxLength(100),
@@ -209,13 +138,6 @@ export const NodeName = Schema.String.pipe(
   }),
 );
 
-// =============================================================================
-// Code Schema (for JS nodes)
-// =============================================================================
-
-/**
- * JavaScript code for JS nodes
- */
 export const JsCode = Schema.String.pipe(
   Schema.annotations({
     description:
@@ -227,13 +149,6 @@ export const JsCode = Schema.String.pipe(
   }),
 );
 
-// =============================================================================
-// Condition Expression Schema
-// =============================================================================
-
-/**
- * Boolean condition expression using expr-lang syntax
- */
 export const ConditionExpression = Schema.String.pipe(
   Schema.annotations({
     description:

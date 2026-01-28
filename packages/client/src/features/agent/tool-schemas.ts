@@ -1,22 +1,17 @@
 /**
- * Tool Schema Definitions using Effect Schema
- *
- * Single source of truth for AI tool definitions.
- * Mutation tools are auto-generated from @mutationTool decorator on collection models.
+ * Runtime tool schema utilities - converts Effect Schemas to JSON Schema tool definitions.
+ * These utilities are used by the agent to handle AI tool calling.
  */
 
 import { JSONSchema, Schema } from 'effect';
 
-// Re-export common schemas and generated tool schemas
-export * from './common.ts';
-export * from '../../dist/ai-tools/v1/execution.ts';
-export * from '../../dist/ai-tools/v1/exploration.ts';
-export * from '../../dist/ai-tools/v1/mutation.ts';
+import { ExecutionSchemas } from '@the-dev-tools/spec/tools/execution';
+import { ExplorationSchemas } from '@the-dev-tools/spec/tools/exploration';
+import { MutationSchemas } from '@the-dev-tools/spec/tools/mutation';
 
-// Import schema groups from generated files
-import { ExecutionSchemas } from '../../dist/ai-tools/v1/execution.ts';
-import { ExplorationSchemas } from '../../dist/ai-tools/v1/exploration.ts';
-import { MutationSchemas } from '../../dist/ai-tools/v1/mutation.ts';
+// Re-export schemas for convenience
+export { ExecutionSchemas, ExplorationSchemas, MutationSchemas };
+export * from '@the-dev-tools/spec-lib/common';
 
 // =============================================================================
 // Tool Definition Type
@@ -39,7 +34,6 @@ function resolveRefs(obj: unknown, defs: Record<string, unknown>): unknown {
 
   const record = obj as Record<string, unknown>;
 
-  // Handle $ref
   if ('$ref' in record && typeof record['$ref'] === 'string') {
     const defName = record['$ref'].replace('#/$defs/', '');
     const resolved = defs[defName];
@@ -49,7 +43,6 @@ function resolveRefs(obj: unknown, defs: Record<string, unknown>): unknown {
     }
   }
 
-  // Handle allOf with single $ref (common Effect pattern)
   if ('allOf' in record && Array.isArray(record['allOf']) && record['allOf'].length === 1) {
     const first = record['allOf'][0] as Record<string, unknown>;
     if ('$ref' in first) {
@@ -58,7 +51,6 @@ function resolveRefs(obj: unknown, defs: Record<string, unknown>): unknown {
     }
   }
 
-  // Recursively process all properties
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
     if (key === '$defs' || key === '$schema') continue;
@@ -99,7 +91,7 @@ function schemaToToolDefinition<A, I, R>(schema: Schema.Schema<A, I, R>): ToolDe
 }
 
 // =============================================================================
-// Auto-generated Tool Definitions (no manual listing needed)
+// Auto-generated Tool Definitions
 // =============================================================================
 
 export const executionSchemas = Object.values(ExecutionSchemas).map((s) =>
@@ -131,7 +123,6 @@ export const EffectSchemas = {
 // Validation Helper
 // =============================================================================
 
-// Build schema map dynamically - no manual maintenance needed
 const schemaMap: Record<string, Schema.Schema<unknown, unknown>> = Object.fromEntries(
   Object.entries(EffectSchemas).flatMap(([, group]) =>
     Object.entries(group).map(([name, schema]) => [
@@ -143,13 +134,6 @@ const schemaMap: Record<string, Schema.Schema<unknown, unknown>> = Object.fromEn
 
 /**
  * Validate tool input against the Effect Schema
- *
- * @example
- * const result = validateToolInput('createJsNode', {
- *   flowId: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
- *   name: 'Transform Data',
- *   code: 'return { result: ctx.value * 2 };'
- * });
  */
 export function validateToolInput(
   toolName: string,
