@@ -267,7 +267,7 @@ const SchemaImports = ({ tools }: { tools: ResolvedTool[] }) => {
           </For>
         </Indent>
         <hbr />
-        {'}'} from '@the-dev-tools/spec/tools/common';
+        {'}'} from '@the-dev-tools/spec-lib/common';
         <hbr />
       </Show>
     </>
