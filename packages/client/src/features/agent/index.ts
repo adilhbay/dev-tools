@@ -12,3 +12,4 @@ export type {
   VariableInfo,
   NodeExecutionInfo,
 } from './types';
+export * from './tool-schemas.ts';
