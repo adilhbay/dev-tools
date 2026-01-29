@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { useCallback, useRef, useState } from 'react';
-import { allToolSchemas } from '@the-dev-tools/spec/tools/schemas';
+import { allToolSchemas } from './tool-schemas';
 import {
   EdgeCollectionSchema,
   FlowVariableCollectionSchema,
@@ -33,6 +33,10 @@ const openai = new OpenAI({
 const MODEL = 'minimax/minimax-m2.1';
 
 const generateId = () => crypto.randomUUID();
+
+/** JSON stringify with BigInt support */
+const safeStringify = (value: unknown): string =>
+  JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
 
 const clientToolSchemas: ToolSchema[] = [
   {
@@ -69,6 +73,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
   const selectedNodeIdsRef = useRef(selectedNodeIds);
   selectedNodeIdsRef.current = selectedNodeIds;
 
+  // Abort controller for cancelling requests
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const nodeCollection = useApiCollection(NodeCollectionSchema);
   const edgeCollection = useApiCollection(EdgeCollectionSchema);
   const variableCollection = useApiCollection(FlowVariableCollectionSchema);
@@ -80,6 +87,11 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
   const sendMessage = useCallback(
     async (content: string) => {
+      // Cancel any existing request
+      abortControllerRef.current?.abort();
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       // Use ref to get latest flowContext at execution time
       const currentFlowContext = {
         ...flowContextRef.current,
@@ -128,12 +140,15 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           { role: 'user', content },
         ];
 
-        let response = await openai.chat.completions.create({
-          model: MODEL,
-          messages: openAIMessages,
-          tools,
-          tool_choice: 'auto',
-        });
+        let response = await openai.chat.completions.create(
+          {
+            model: MODEL,
+            messages: openAIMessages,
+            tools,
+            tool_choice: 'auto',
+          },
+          { signal: abortController.signal },
+        );
 
         let assistantMessage = response.choices[0]?.message;
 
@@ -164,7 +179,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           const toolResultMessages: Message[] = toolResults.map((tr) => ({
             id: generateId(),
             role: 'tool' as const,
-            content: tr.error ?? JSON.stringify(tr.result),
+            content: tr.error ?? safeStringify(tr.result),
             toolCallId: tr.toolCallId,
             timestamp: Date.now(),
           }));
@@ -184,16 +199,19 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
             openAIMessages.push({
               role: 'tool',
               tool_call_id: tr.toolCallId,
-              content: tr.error ?? JSON.stringify(tr.result),
+              content: tr.error ?? safeStringify(tr.result),
             });
           }
 
-          response = await openai.chat.completions.create({
-            model: MODEL,
-            messages: openAIMessages,
-            tools,
-            tool_choice: 'auto',
-          });
+          response = await openai.chat.completions.create(
+            {
+              model: MODEL,
+              messages: openAIMessages,
+              tools,
+              tool_choice: 'auto',
+            },
+            { signal: abortController.signal },
+          );
 
           assistantMessage = response.choices[0]?.message;
         }
@@ -211,23 +229,40 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           isLoading: false,
         }));
       } catch (error) {
+        // Ignore abort errors
+        if (error instanceof Error && error.name === 'AbortError') {
+          setState((prev) => ({ ...prev, isLoading: false }));
+          return;
+        }
         const errorMessage = error instanceof Error ? error.message : 'An error occurred';
         setState((prev) => ({
           ...prev,
           isLoading: false,
           error: errorMessage,
         }));
+      } finally {
+        if (abortControllerRef.current === abortController) {
+          abortControllerRef.current = null;
+        }
       }
     },
     [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, executionCollection, state.messages],
   );
 
   const clearMessages = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     setState({
       messages: [],
       isLoading: false,
       error: null,
     });
+  }, []);
+
+  const cancel = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setState((prev) => ({ ...prev, isLoading: false }));
   }, []);
 
   return {
@@ -236,6 +271,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
     error: state.error,
     sendMessage,
     clearMessages,
+    cancel,
   };
 };
 

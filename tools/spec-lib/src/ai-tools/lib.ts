@@ -85,6 +85,7 @@ function mutationTool({ program }: DecoratorContext, target: Model, ...tools: Ra
 
 export interface ExplorationToolOptions {
   description?: string | undefined;
+  keyField?: string | undefined;
   name?: string | undefined;
   title?: string | undefined;
 }
@@ -93,6 +94,7 @@ export const explorationTools = makeStateMap<Model, ExplorationToolOptions[]>('e
 
 interface RawExplorationToolOptions {
   description?: string;
+  keyField?: string;
   name?: string;
   title?: string;
 }
@@ -105,6 +107,7 @@ function explorationTool({ program }: DecoratorContext, target: Model, ...tools:
 
   const resolved: ExplorationToolOptions[] = effectiveTools.map((tool) => ({
     description: tool.description ?? `Get a ${spacedName.toLowerCase()} by its primary key.`,
+    keyField: tool.keyField,
     name: tool.name ?? `Get${target.name}`,
     title: tool.title ?? `Get ${spacedName}`,
   }));
