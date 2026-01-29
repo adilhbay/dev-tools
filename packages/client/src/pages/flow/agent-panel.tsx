@@ -1,4 +1,4 @@
-import { FormEvent, use, useEffect, useRef, useState } from 'react';
+import { FormEvent, use, useEffect, useMemo, useRef, useState } from 'react';
 import { FiTrash2, FiX } from 'react-icons/fi';
 import * as XF from '@xyflow/react';
 import Markdown from 'react-markdown';
@@ -12,7 +12,7 @@ export const AgentPanel = () => {
   const selectedNodeIds = XF.useStore((s) =>
     s.nodes.filter((n) => n.selected).map((n) => n.id),
   );
-  const { messages, isLoading, error, sendMessage, clearMessages } = useAgentChat({ flowId, selectedNodeIds });
+  const { messages, isLoading, error, sendMessage, clearMessages, cancel } = useAgentChat({ flowId, selectedNodeIds });
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -70,7 +70,16 @@ export const AgentPanel = () => {
               <TerminalMessage key={message.id} message={message} />
             ))}
             {isLoading && (
-              <div className={tw`animate-pulse text-slate-500`}>... thinking</div>
+              <div className={tw`flex items-center gap-2`}>
+                <span className={tw`animate-pulse text-slate-500`}>... thinking</span>
+                <button
+                  type='button'
+                  onClick={cancel}
+                  className={tw`rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-300`}
+                >
+                  cancel
+                </button>
+              </div>
             )}
             <div ref={messagesEndRef} />
           </div>
@@ -106,9 +115,7 @@ const TerminalMessage = ({ message }: { message: Message }) => {
   }
 
   if (message.role === 'tool') {
-    return (
-      <div className={tw`text-slate-600`}>[tool result]</div>
-    );
+    return <ToolResultMessage content={message.content} />;
   }
 
   if (message.role === 'assistant' && message.toolCalls) {
@@ -161,6 +168,37 @@ const TerminalMessage = ({ message }: { message: Message }) => {
       >
         {message.content}
       </Markdown>
+    </div>
+  );
+};
+
+const ToolResultMessage = ({ content }: { content: string }) => {
+  const [expanded, setExpanded] = useState(false);
+  const preview = useMemo(() => {
+    const maxLen = 80;
+    if (content.length <= maxLen) return content;
+    return content.slice(0, maxLen) + '...';
+  }, [content]);
+
+  const isLong = content.length > 80;
+
+  return (
+    <div className={tw`text-slate-600`}>
+      <button
+        type='button'
+        onClick={() => isLong && setExpanded(!expanded)}
+        className={tw`flex items-center gap-1 text-left hover:text-slate-500`}
+      >
+        <span className={tw`text-slate-700`}>←</span>
+        <span className={tw`font-mono text-xs`}>
+          {expanded ? content : preview}
+        </span>
+        {isLong && (
+          <span className={tw`ml-1 text-[10px] text-slate-700`}>
+            {expanded ? '▲' : '▼'}
+          </span>
+        )}
+      </button>
     </div>
   );
 };
