@@ -8,6 +8,22 @@ import type { FlowContextData, ToolCall, ToolResult } from './types';
 type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection>['utils'];
 type CollectionData = ReturnType<typeof import('~/shared/api').useApiCollection>;
 
+/**
+ * Transforms JS-style bracket notation to mustache syntax for expr-lang.
+ * ["NodeName"].field.subfield → {{NodeName.field.subfield}}
+ * ["Node Name"].response.status → {{Node Name.response.status}}
+ */
+function normalizeExpressionSyntax(expr: string): string {
+  if (!expr) return expr;
+
+  // Pattern: ["NodeName"] followed by optional .field.subfield chain
+  // Captures: the node name and the field path
+  return expr.replace(
+    /\["([^"]+)"\]((?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g,
+    (_, nodeName, fieldPath) => `{{${nodeName}${fieldPath}}}`,
+  );
+}
+
 interface Collections {
   nodeCollection: { utils: CollectionUtils };
   edgeCollection: { utils: CollectionUtils };
@@ -272,7 +288,7 @@ const executeToolInternal = async (
     case 'createConditionNode': {
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const condition = args.condition as string;
+      const condition = normalizeExpressionSyntax(args.condition as string);
       const nodeName = args.name as string;
 
       conditionCollection.utils.insert({
@@ -295,7 +311,7 @@ const executeToolInternal = async (
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
       const iterations = args.iterations as number;
-      const condition = args.condition as string;
+      const condition = normalizeExpressionSyntax(args.condition as string);
       const errorHandling = args.errorHandling as string;
       const nodeName = args.name as string;
 
@@ -320,8 +336,8 @@ const executeToolInternal = async (
     case 'createForEachNode': {
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const path = args.path as string;
-      const condition = args.condition as string;
+      const path = normalizeExpressionSyntax(args.path as string);
+      const condition = normalizeExpressionSyntax(args.condition as string);
       const errorHandling = args.errorHandling as string;
       const nodeName = args.name as string;
 

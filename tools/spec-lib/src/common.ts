@@ -141,10 +141,10 @@ export const NodeName = Schema.String.pipe(
 export const JsCode = Schema.String.pipe(
   Schema.annotations({
     description:
-      'The function body only. Write code directly - do NOT define inner functions. Use ctx for input. MUST have a return statement. The tool auto-wraps with "export default function(ctx) { ... }". Example: "const result = ctx.value * 2; return { result };"',
+      'Function body only. Access node outputs via ctx["NodeName"]. MUST have a return statement. Auto-wrapped with "export default function(ctx) { ... }".',
     examples: [
-      'const result = ctx.value * 2; return { result };',
-      'const items = ctx.data.filter(x => x.active); return { items, count: items.length };',
+      'const data = ctx["Fetch User"].response.body; return { userId: data.id };',
+      'const items = ctx["Transform"].results.filter(x => x.active); return { items };',
     ],
   }),
 );
@@ -152,8 +152,12 @@ export const JsCode = Schema.String.pipe(
 export const ConditionExpression = Schema.String.pipe(
   Schema.annotations({
     description:
-      'Boolean expression using expr-lang syntax. Use == for equality (NOT ===). Use Input to reference previous node output (e.g., "Input.status == 200", "Input.success == true")',
-    examples: ['Input.status == 200', 'Input.success == true', 'Input.count > 0'],
+      'Boolean expression using expr-lang syntax. Access node outputs via ["NodeName"]. Use == for equality (not ===).',
+    examples: [
+      '["Validator"].isValid == true',
+      '["GetUser"].response.status == 200',
+      '["Transform"].count > 0',
+    ],
   }),
 );
 
