@@ -21,6 +21,7 @@ export interface ToolResult {
   toolCallId: string;
   result: unknown;
   error?: string;
+  isMutation?: boolean;
 }
 
 export interface AgentChatState {
