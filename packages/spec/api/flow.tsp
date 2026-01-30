@@ -149,7 +149,7 @@ model Node {
 
 @AITools.explorationTool
 @AITools.mutationTool(
-  #{ operation: AITools.CrudOperation.Insert, title: "Create HTTP Node", name: "CreateHttpNode", parent: "Node", exclude: #["kind"], description: "Create a new HTTP request node that makes an API call." }
+  #{ operation: AITools.CrudOperation.Insert, title: "Create HTTP Node", name: "CreateHttpNode", parent: "Node", exclude: #["kind", "httpId", "deltaHttpId"], include: #[#{ fromModel: "Http", fields: #["url", "method"] }], description: "Create a new HTTP request node that makes an API call." }
 )
 @TanStackDB.collection
 model NodeHttp {
