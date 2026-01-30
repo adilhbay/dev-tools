@@ -1,6 +1,7 @@
 import type { Transport } from '@connectrpc/connect';
 import { Ulid } from 'id128';
 import { FlowService, HandleKind, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
+import { HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import { request } from '~/shared/api';
 import type { FlowContextData, ToolCall, ToolResult } from './types';
 
@@ -15,6 +16,8 @@ interface Collections {
   conditionCollection: { utils: CollectionUtils };
   forCollection: { utils: CollectionUtils };
   forEachCollection: { utils: CollectionUtils };
+  nodeHttpCollection: { utils: CollectionUtils };
+  httpCollection: { utils: CollectionUtils };
   executionCollection: CollectionData;
 }
 
@@ -30,6 +33,16 @@ const HANDLE_KIND_MAP: Record<string, HandleKind> = {
   then: HandleKind.THEN,
   else: HandleKind.ELSE,
   loop: HandleKind.LOOP,
+};
+
+const HTTP_METHOD_MAP: Record<string, HttpMethod> = {
+  GET: HttpMethod.GET,
+  POST: HttpMethod.POST,
+  PUT: HttpMethod.PUT,
+  PATCH: HttpMethod.PATCH,
+  DELETE: HttpMethod.DELETE,
+  HEAD: HttpMethod.HEAD,
+  OPTIONS: HttpMethod.OPTIONS,
 };
 
 export const executeToolCall = async (
@@ -66,6 +79,8 @@ const executeToolInternal = async (
     conditionCollection,
     forCollection,
     forEachCollection,
+    nodeHttpCollection,
+    httpCollection,
     executionCollection,
   } = collections;
 
@@ -314,6 +329,50 @@ const executeToolInternal = async (
       return { nodeId: Ulid.construct(nodeId).toCanonical(), name: nodeName };
     }
 
+    case 'createHttpNode': {
+      const nodeId = Ulid.generate().bytes;
+      const position = args.position as { x: number; y: number };
+      const nodeName = args.name as string;
+
+      let httpId: Uint8Array;
+      let httpIdStr: string;
+
+      if (args.httpId) {
+        // Use existing HTTP request
+        httpId = parseUlid(args.httpId as string);
+        httpIdStr = args.httpId as string;
+      } else {
+        // Create new HTTP request
+        httpId = Ulid.generate().bytes;
+        httpIdStr = Ulid.construct(httpId).toCanonical();
+        const methodStr = ((args.method as string) ?? 'GET').toUpperCase();
+        const method = HTTP_METHOD_MAP[methodStr] ?? HttpMethod.GET;
+        const url = (args.url as string) ?? '';
+
+        httpCollection.utils.insert({
+          httpId,
+          method,
+          name: nodeName,
+          url,
+        });
+      }
+
+      nodeHttpCollection.utils.insert({
+        nodeId,
+        httpId,
+      });
+
+      nodeCollection.utils.insert({
+        flowId,
+        kind: NodeKind.HTTP,
+        name: nodeName,
+        nodeId,
+        position,
+      });
+
+      return { nodeId: Ulid.construct(nodeId).toCanonical(), httpId: httpIdStr, name: nodeName };
+    }
+
     case 'connectSequentialNodes': {
       const edgeId = Ulid.generate().bytes;
       const sourceId = parseUlid(args.sourceId as string);
@@ -414,6 +473,23 @@ const executeToolInternal = async (
 
       variableCollection.utils.update(updates);
       return { success: true };
+    }
+
+    case 'updateHttpMethod': {
+      const httpId = parseUlid(args.httpId as string);
+      const methodStr = (args.method as string).toUpperCase();
+      const method = HTTP_METHOD_MAP[methodStr];
+
+      if (method === undefined) {
+        throw new Error(`Invalid HTTP method: ${args.method}. Valid methods are: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`);
+      }
+
+      httpCollection.utils.update({
+        httpId,
+        method,
+      });
+
+      return { success: true, method: methodStr };
     }
 
     case 'flowRunRequest': {

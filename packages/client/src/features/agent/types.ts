@@ -45,6 +45,8 @@ export interface NodeInfo {
   position: { x: number; y: number };
   state: string;
   info?: string;
+  httpId?: string;
+  httpMethod?: string;
 }
 
 export interface NodeExecutionInfo {
