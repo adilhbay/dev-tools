@@ -1,6 +1,6 @@
 import { code, For, Indent, refkey, Show, SourceDirectory } from '@alloy-js/core';
 import { SourceFile, VarDeclaration } from '@alloy-js/typescript';
-import { EmitContext, getDoc, Model, ModelProperty, Program } from '@typespec/compiler';
+import { EmitContext, getDoc, Model, ModelProperty, Namespace, Program } from '@typespec/compiler';
 import { Output, useTsp, writeOutput } from '@typespec/emitter-framework';
 import { Array, String } from 'effect';
 import { join } from 'node:path/posix';
@@ -36,6 +36,36 @@ interface ResolvedProperty {
   property: ModelProperty;
 }
 
+/** Find a model by name, searching the given namespace and all sibling namespaces */
+function findModel(program: Program, startNamespace: Namespace | undefined, modelName: string): Model | undefined {
+  // First try the local namespace
+  if (startNamespace?.models.has(modelName)) {
+    return startNamespace.models.get(modelName);
+  }
+  // Try sibling namespaces (same parent)
+  const parentNs = startNamespace?.namespace;
+  if (parentNs) {
+    for (const ns of parentNs.namespaces.values()) {
+      if (ns.models.has(modelName)) {
+        return ns.models.get(modelName);
+      }
+    }
+  }
+  // Try global namespace
+  for (const ns of program.getGlobalNamespaceType().namespaces.values()) {
+    if (ns.models.has(modelName)) {
+      return ns.models.get(modelName);
+    }
+    // Check nested namespaces one level deep
+    for (const subNs of ns.namespaces.values()) {
+      if (subNs.models.has(modelName)) {
+        return subNs.models.get(modelName);
+      }
+    }
+  }
+  return undefined;
+}
+
 interface ResolvedTool {
   description?: string | undefined;
   name: string;
@@ -56,8 +86,24 @@ function isVisibleFor(property: ModelProperty, phase: 'Create' | 'Update'): bool
 }
 
 function resolveToolProperties(program: Program, collectionModel: Model, toolDef: MutationToolOptions): ResolvedProperty[] {
-  const { exclude = [], operation, parent: parentName } = toolDef;
+  const { exclude = [], include = [], operation, parent: parentName } = toolDef;
   const parent = parentName ? collectionModel.namespace?.models.get(parentName) : undefined;
+
+  // Helper to resolve properties from included models
+  const resolveIncludedProperties = (): ResolvedProperty[] => {
+    const includedProps: ResolvedProperty[] = [];
+    for (const inc of include) {
+      const includedModel = findModel(program, collectionModel.namespace, inc.fromModel);
+      if (!includedModel) continue;
+      for (const fieldName of inc.fields) {
+        const prop = includedModel.properties.get(fieldName);
+        if (prop && !exclude.includes(prop.name)) {
+          includedProps.push({ optional: prop.optional, property: prop });
+        }
+      }
+    }
+    return includedProps;
+  };
 
   switch (operation) {
     case 'Insert': {
@@ -76,6 +122,8 @@ function resolveToolProperties(program: Program, collectionModel: Model, toolDef
         if (exclude.includes(prop.name)) continue;
         props.push({ optional: prop.optional, property: prop });
       }
+      // Add properties from included models
+      props.push(...resolveIncludedProperties());
       return props;
     }
     case 'Update': {

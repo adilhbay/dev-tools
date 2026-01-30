@@ -21,6 +21,11 @@ namespace DevTools.AITools {
     Delete,
   }
 
+  model IncludeFromModel {
+    fromModel: string;
+    fields: string[];
+  }
+
   model MutationToolOptions {
     operation: CrudOperation;
     title?: string;
@@ -28,6 +33,7 @@ namespace DevTools.AITools {
     description?: string;
     parent?: string;
     exclude?: string[];
+    include?: IncludeFromModel[];
   }
 
   extern dec mutationTool(target: Reflection.Model, ...tools: valueof MutationToolOptions[]);

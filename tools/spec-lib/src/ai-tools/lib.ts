@@ -45,9 +45,15 @@ function pascalToWords(name: string): string[] {
 
 export type CrudOperation = 'Delete' | 'Insert' | 'Update';
 
+export interface IncludeFromModel {
+  fromModel: string;
+  fields: string[];
+}
+
 export interface MutationToolOptions {
   description?: string | undefined;
   exclude?: string[] | undefined;
+  include?: IncludeFromModel[] | undefined;
   name?: string | undefined;
   operation: CrudOperation;
   parent?: string | undefined;
@@ -56,9 +62,15 @@ export interface MutationToolOptions {
 
 export const mutationTools = makeStateMap<Model, MutationToolOptions[]>('mutationTools');
 
+interface RawIncludeFromModel {
+  fromModel: string;
+  fields: string[];
+}
+
 interface RawMutationToolOptions {
   description?: string;
   exclude?: string[];
+  include?: RawIncludeFromModel[];
   name?: string;
   operation: EnumValue;
   parent?: string;
@@ -74,6 +86,7 @@ function mutationTool({ program }: DecoratorContext, target: Model, ...tools: Ra
     return {
       description: tool.description,
       exclude: tool.exclude,
+      include: tool.include,
       name: tool.name ?? `${operation}${target.name}`,
       operation,
       parent: tool.parent,
