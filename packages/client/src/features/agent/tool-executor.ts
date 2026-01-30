@@ -45,21 +45,35 @@ const HTTP_METHOD_MAP: Record<string, HttpMethod> = {
   OPTIONS: HttpMethod.OPTIONS,
 };
 
+const MUTATION_TOOLS = new Set([
+  'createJsNode',
+  'createConditionNode',
+  'createForNode',
+  'createForEachNode',
+  'createHttpNode',
+  'connectSequentialNodes',
+  'connectBranchingNodes',
+  'disconnectNodes',
+  'deleteNode',
+]);
+
 export const executeToolCall = async (
   toolCall: ToolCall,
   flowId: Uint8Array,
   context: ToolExecutorContext,
 ): Promise<ToolResult> => {
   const { id, name, arguments: args } = toolCall;
+  const isMutation = MUTATION_TOOLS.has(name);
 
   try {
     const result = await executeToolInternal(name, args, flowId, context);
-    return { toolCallId: id, result };
+    return { toolCallId: id, result, isMutation };
   } catch (error) {
     return {
       toolCallId: id,
       result: null,
       error: error instanceof Error ? error.message : String(error),
+      isMutation,
     };
   }
 };
@@ -235,7 +249,7 @@ const executeToolInternal = async (
 
     case 'createJsNode': {
       const nodeId = Ulid.generate().bytes;
-      const position = args.position as { x: number; y: number };
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
       const code = args.code as string;
       const nodeName = args.name as string;
 
@@ -257,7 +271,7 @@ const executeToolInternal = async (
 
     case 'createConditionNode': {
       const nodeId = Ulid.generate().bytes;
-      const position = args.position as { x: number; y: number };
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
       const condition = args.condition as string;
       const nodeName = args.name as string;
 
@@ -279,7 +293,7 @@ const executeToolInternal = async (
 
     case 'createForNode': {
       const nodeId = Ulid.generate().bytes;
-      const position = args.position as { x: number; y: number };
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
       const iterations = args.iterations as number;
       const condition = args.condition as string;
       const errorHandling = args.errorHandling as string;
@@ -305,7 +319,7 @@ const executeToolInternal = async (
 
     case 'createForEachNode': {
       const nodeId = Ulid.generate().bytes;
-      const position = args.position as { x: number; y: number };
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
       const path = args.path as string;
       const condition = args.condition as string;
       const errorHandling = args.errorHandling as string;
@@ -331,7 +345,7 @@ const executeToolInternal = async (
 
     case 'createHttpNode': {
       const nodeId = Ulid.generate().bytes;
-      const position = args.position as { x: number; y: number };
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
       const nodeName = args.name as string;
 
       let httpId: Uint8Array;

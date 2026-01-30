@@ -227,16 +227,16 @@ VARIABLES:
 ${variablesList || '  (no variables)'}${buildSelectedNodesSection(context)}${errorSection}
 
 IMPORTANT RULES:
-1. When creating nodes, always provide a position. Place new nodes below existing ones (increase Y by ~150).
-2. To find the start node, look for a node with kind "ManualStart".
-3. When connecting nodes, use the node IDs from above.
-4. For JavaScript nodes, provide the function body directly - it will be wrapped in "export default function(ctx) { ... }".
-5. Use connectSequentialNodes for ManualStart, JavaScript, and HTTP nodes.
-6. Use connectBranchingNodes for Condition, For, and ForEach nodes (requires sourceHandle: "then", "else", or "loop").
-7. Always confirm what you did after executing tools.
-8. If a node has State: Failure, use getNodeExecutions to get detailed error information.
-9. Use getNodeOutput to inspect the input/output data of a node's most recent execution.
-10. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.`;
+1. To find the start node, look for a node with kind "ManualStart".
+2. When connecting nodes, use the node IDs from above.
+3. For JavaScript nodes, provide the function body directly - it will be wrapped in "export default function(ctx) { ... }".
+4. Use connectSequentialNodes for ManualStart, JavaScript, and HTTP nodes.
+5. Use connectBranchingNodes for Condition, For, and ForEach nodes (requires sourceHandle: "then", "else", or "loop").
+6. Always confirm what you did after executing tools.
+7. If a node has State: Failure, use getNodeExecutions to get detailed error information.
+8. Use getNodeOutput to inspect the input/output data of a node's most recent execution.
+9. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
+10. Node positions are automatically calculated - you do not need to specify positions when creating nodes.`;
 };
 
 const buildSelectedNodesSection = (context: FlowContextData): string => {

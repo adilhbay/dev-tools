@@ -1,3 +1,4 @@
+import { Ulid } from 'id128';
 import OpenAI from 'openai';
 import { useCallback, useRef, useState } from 'react';
 import { allToolSchemas } from './tool-schemas';
@@ -16,13 +17,16 @@ import { HttpCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/htt
 import { useApiCollection } from '~/shared/api';
 import { routes } from '~/shared/routes';
 import { buildSystemPrompt, useFlowContext } from './context-builder';
+import { defaultHorizontalConfig, layoutNodes } from './layout';
 import { executeToolCall, type Collections, type ToolExecutorContext } from './tool-executor';
 import {
   formatToolAsOpenAI,
   type AgentChatState,
+  type FlowContextData,
   type Message,
   type OpenAIMessage,
   type ToolCall,
+  type ToolResult,
   type ToolSchema,
 } from './types';
 
@@ -39,6 +43,23 @@ const generateId = () => crypto.randomUUID();
 /** JSON stringify with BigInt support */
 const safeStringify = (value: unknown): string =>
   JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
+
+type NodeCollectionUtils = ReturnType<typeof useApiCollection<typeof NodeCollectionSchema>>['utils'];
+
+const applyLayoutToFlow = (
+  flowContext: FlowContextData,
+  nodeCollectionUtils: NodeCollectionUtils,
+): void => {
+  const result = layoutNodes(flowContext.nodes, flowContext.edges, defaultHorizontalConfig());
+  if (!result) return;
+
+  for (const [nodeId, position] of result.positions) {
+    nodeCollectionUtils.update({
+      nodeId: Ulid.fromCanonical(nodeId).bytes,
+      position: { x: position.x, y: position.y },
+    });
+  }
+};
 
 const clientToolSchemas: ToolSchema[] = [
   {
@@ -201,6 +222,17 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           const toolResults = await Promise.all(
             toolCalls.map((tc) => executeToolCall(tc, flowId, toolContext)),
           );
+
+          // Apply layout after mutations
+          const hadMutations = toolResults.some((tr: ToolResult) => tr.isMutation && !tr.error);
+          if (hadMutations) {
+            // Get fresh context after mutations
+            const updatedContext = {
+              ...flowContextRef.current,
+              selectedNodeIds: selectedNodeIdsRef.current,
+            };
+            applyLayoutToFlow(updatedContext, nodeCollection.utils);
+          }
 
           const toolResultMessages: Message[] = toolResults.map((tr) => ({
             id: generateId(),
