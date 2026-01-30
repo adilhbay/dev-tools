@@ -9,8 +9,10 @@ import {
   NodeExecutionCollectionSchema,
   NodeForCollectionSchema,
   NodeForEachCollectionSchema,
+  NodeHttpCollectionSchema,
   NodeJsCollectionSchema,
 } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
+import { HttpCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/http';
 import { useApiCollection } from '~/shared/api';
 import { routes } from '~/shared/routes';
 import { buildSystemPrompt, useFlowContext } from './context-builder';
@@ -49,6 +51,26 @@ const clientToolSchemas: ToolSchema[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'updateHttpMethod',
+    description: 'Update the HTTP method of an existing HTTP request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpId: {
+          type: 'string',
+          description: 'The ID of the HTTP request to update (from the node\'s httpId field)',
+        },
+        method: {
+          type: 'string',
+          description: 'The new HTTP method',
+          enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
+        },
+      },
+      required: ['httpId', 'method'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 interface UseAgentChatOptions {
@@ -83,6 +105,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
   const conditionCollection = useApiCollection(NodeConditionCollectionSchema);
   const forCollection = useApiCollection(NodeForCollectionSchema);
   const forEachCollection = useApiCollection(NodeForEachCollectionSchema);
+  const nodeHttpCollection = useApiCollection(NodeHttpCollectionSchema);
+  const httpCollection = useApiCollection(HttpCollectionSchema);
   const executionCollection = useApiCollection(NodeExecutionCollectionSchema);
 
   const sendMessage = useCallback(
@@ -107,6 +131,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         conditionCollection,
         forCollection,
         forEachCollection,
+        nodeHttpCollection,
+        httpCollection,
         executionCollection,
       };
 
@@ -246,7 +272,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         }
       }
     },
-    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, executionCollection, state.messages],
+    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, executionCollection, state.messages],
   );
 
   const clearMessages = useCallback(() => {

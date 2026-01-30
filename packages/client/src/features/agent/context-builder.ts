@@ -1,12 +1,15 @@
 import { eq, useLiveQuery } from '@tanstack/react-db';
 import { Ulid } from 'id128';
 import { FlowItemState, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
+import { HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import {
   EdgeCollectionSchema,
   FlowVariableCollectionSchema,
   NodeCollectionSchema,
   NodeExecutionCollectionSchema,
+  NodeHttpCollectionSchema,
 } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
+import { HttpCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/http';
 import { useApiCollection } from '~/shared/api';
 import type { EdgeInfo, FlowContextData, NodeExecutionInfo, NodeInfo, VariableInfo } from './types';
 
@@ -28,11 +31,24 @@ const FLOW_ITEM_STATE_NAMES: Record<number, string> = {
   [FlowItemState.CANCELED]: 'Canceled',
 };
 
+const HTTP_METHOD_NAMES: Record<number, string> = {
+  [HttpMethod.UNSPECIFIED]: 'UNSPECIFIED',
+  [HttpMethod.GET]: 'GET',
+  [HttpMethod.POST]: 'POST',
+  [HttpMethod.PUT]: 'PUT',
+  [HttpMethod.PATCH]: 'PATCH',
+  [HttpMethod.DELETE]: 'DELETE',
+  [HttpMethod.HEAD]: 'HEAD',
+  [HttpMethod.OPTIONS]: 'OPTIONS',
+};
+
 export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
   const nodeCollection = useApiCollection(NodeCollectionSchema);
   const edgeCollection = useApiCollection(EdgeCollectionSchema);
   const variableCollection = useApiCollection(FlowVariableCollectionSchema);
   const executionCollection = useApiCollection(NodeExecutionCollectionSchema);
+  const nodeHttpCollection = useApiCollection(NodeHttpCollectionSchema);
+  const httpCollection = useApiCollection(HttpCollectionSchema);
 
   const { data: nodesData } = useLiveQuery(
     (_) =>
@@ -72,16 +88,49 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
     (e) => e.nodeId != null && nodeIdSet.has(Ulid.construct(e.nodeId).toCanonical()),
   );
 
+  // Get all nodeHttp mappings for HTTP nodes
+  const { data: nodeHttpData } = useLiveQuery(
+    (_) => _.from({ nodeHttp: nodeHttpCollection }),
+    [nodeHttpCollection],
+  );
+
+  // Build a map of nodeId -> httpId for quick lookup
+  const nodeHttpMap = new Map(
+    (nodeHttpData ?? [])
+      .filter((nh) => nh.nodeId != null && nh.httpId != null)
+      .map((nh) => [Ulid.construct(nh.nodeId).toCanonical(), Ulid.construct(nh.httpId).toCanonical()]),
+  );
+
+  // Get all HTTP requests to fetch their methods
+  const { data: httpData } = useLiveQuery(
+    (_) => _.from({ http: httpCollection }),
+    [httpCollection],
+  );
+
+  // Build a map of httpId -> method for quick lookup
+  const httpMethodMap = new Map(
+    (httpData ?? [])
+      .filter((h) => h.httpId != null)
+      .map((h) => [Ulid.construct(h.httpId).toCanonical(), HTTP_METHOD_NAMES[h.method] ?? 'UNSPECIFIED']),
+  );
+
   const nodes: NodeInfo[] = (nodesData ?? [])
     .filter((n) => n.nodeId != null)
-    .map((n) => ({
-      id: Ulid.construct(n.nodeId).toCanonical(),
-      name: n.name,
-      kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
-      position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
-      state: FLOW_ITEM_STATE_NAMES[n.state] ?? 'Idle',
-      info: n.info ?? undefined,
-    }));
+    .map((n) => {
+      const nodeIdStr = Ulid.construct(n.nodeId).toCanonical();
+      const httpId = n.kind === NodeKind.HTTP ? nodeHttpMap.get(nodeIdStr) : undefined;
+      const httpMethod = httpId ? httpMethodMap.get(httpId) : undefined;
+      return {
+        id: nodeIdStr,
+        name: n.name,
+        kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+        position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
+        state: FLOW_ITEM_STATE_NAMES[n.state] ?? 'Idle',
+        info: n.info ?? undefined,
+        httpId,
+        httpMethod,
+      };
+    });
 
   const edges: EdgeInfo[] = (edgesData ?? [])
     .filter((e) => e.edgeId != null)
@@ -128,7 +177,8 @@ export const buildSystemPrompt = (context: FlowContextData): string => {
     .map((n) => {
       const stateInfo = n.state !== 'Idle' ? `, State: ${n.state}` : '';
       const errorInfo = n.info ? `, Error: "${n.info}"` : '';
-      return `  - ${n.name} (ID: ${n.id}, Type: ${n.kind}${stateInfo}${errorInfo})`;
+      const methodInfo = n.httpMethod ? `, Method: ${n.httpMethod}` : '';
+      return `  - ${n.name} (ID: ${n.id}, Type: ${n.kind}${methodInfo}${stateInfo}${errorInfo})`;
     })
     .join('\n');
 
