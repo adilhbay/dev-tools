@@ -229,7 +229,7 @@ ${variablesList || '  (no variables)'}${buildSelectedNodesSection(context)}${err
 IMPORTANT RULES:
 1. To find the start node, look for a node with kind "ManualStart".
 2. When connecting nodes, use the node IDs from above.
-3. Node outputs are stored by node name. In JS code use ctx["NodeName"], in conditions use ["NodeName"]. HTTP nodes output { response: { status, body }, request }. JS nodes output their return value directly.
+3. Node outputs are stored by node name. In JS code use ctx["NodeName"]. HTTP nodes output { response: { status, body }, request }. ForEach nodes expose { item, key } during iteration.
 4. Use connectSequentialNodes for ManualStart, JavaScript, and HTTP nodes.
 5. Use connectBranchingNodes for Condition, For, and ForEach nodes (requires sourceHandle: "then", "else", or "loop").
 6. Always confirm what you did after executing tools.

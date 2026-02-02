@@ -141,10 +141,10 @@ export const NodeName = Schema.String.pipe(
 export const JsCode = Schema.String.pipe(
   Schema.annotations({
     description:
-      'Function body only. Access node outputs via ctx["NodeName"]. MUST have a return statement. Auto-wrapped with "export default function(ctx) { ... }".',
+      'Function body only. Access node outputs via ctx["NodeName"]. MUST have a return statement. Auto-wrapped with "export default function(ctx) { ... }". IMPORTANT: Always return an object (not array/primitive) so properties are directly accessible in conditions.',
     examples: [
       'const data = ctx["Fetch User"].response.body; return { userId: data.id };',
-      'const items = ctx["Transform"].results.filter(x => x.active); return { items };',
+      'const items = ctx["HTTP"].response.body; return { items, count: items.length };',
     ],
   }),
 );
@@ -152,11 +152,12 @@ export const JsCode = Schema.String.pipe(
 export const ConditionExpression = Schema.String.pipe(
   Schema.annotations({
     description:
-      'Boolean expression using expr-lang syntax. Access node outputs via ["NodeName"]. Use == for equality (not ===).',
+      'Boolean expression using expr-lang syntax. NEVER use {{}} template syntax in conditions. Access node outputs via ["NodeName"]. When a JS node returns an array/primitive directly, it is wrapped as .result. Use len() for array length. ForEach nodes expose .item (current value) and .key (index).',
     examples: [
-      '["Validator"].isValid == true',
       '["GetUser"].response.status == 200',
-      '["Transform"].count > 0',
+      'len(["Transform"].result) > 5',
+      '["ForEach Loop"].key >= 3',
+      '["JS Node"].count > 0',
     ],
   }),
 );
