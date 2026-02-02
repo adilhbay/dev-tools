@@ -144,7 +144,7 @@ model NodeFor {
 @TanStackDB.collection
 model NodeForEach {
   @primaryKey nodeId: Id;
-  @doc("Path to the array/object to iterate (e.g., \"input.items\")") path: string;
+  @doc("Expression for the array/object to iterate. Use expr-lang syntax: [\"JS Node\"].items or [\"HTTP\"].response.body") path: string;
   condition: string;
   errorHandling: ErrorHandling;
 }
