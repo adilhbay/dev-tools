@@ -47,22 +47,13 @@ const buildOutgoingAdjacency = (edges: EdgeInfo[]): Map<string, string[]> => {
   return adj;
 };
 
-const buildIncomingAdjacency = (edges: EdgeInfo[]): Map<string, string[]> => {
-  const adj = new Map<string, string[]>();
-  for (const e of edges) {
-    const existing = adj.get(e.targetId) ?? [];
-    existing.push(e.sourceId);
-    adj.set(e.targetId, existing);
-  }
-  return adj;
-};
-
 const findStartNode = (nodes: NodeInfo[]): NodeInfo | undefined =>
   nodes.find((n) => n.kind === 'ManualStart');
 
 /**
  * Layout computes node positions using BFS-based level assignment.
  * Each node's level is max(parent_levels) + 1, ensuring proper dependency ordering.
+ * Cycles are handled by only visiting each node once.
  */
 export const layout = (
   nodes: NodeInfo[],
@@ -79,61 +70,37 @@ export const layout = (
   }
 
   const outgoingEdges = buildOutgoingAdjacency(edges);
-  const incomingEdges = buildIncomingAdjacency(edges);
 
   const nodeLevels = new Map<string, number>();
   const levelNodes = new Map<number, string[]>();
+  const visited = new Set<string>();
 
   // Start BFS from start node
   const queue: string[] = [startNodeId];
   nodeLevels.set(startNodeId, 0);
   levelNodes.set(0, [startNodeId]);
-
-  // Safety counter to prevent infinite loops on cyclic graphs
-  let processedCount = 0;
-  const maxProcessed = Math.max(nodes.length * nodes.length, 10000);
+  visited.add(startNodeId);
 
   while (queue.length > 0) {
-    if (processedCount > maxProcessed) break;
-    processedCount++;
-
     const currentNodeId = queue.shift()!;
+    const currentLevel = nodeLevels.get(currentNodeId) ?? 0;
 
     // Process all children
     const children = outgoingEdges.get(currentNodeId) ?? [];
     for (const childId of children) {
-      // Calculate the maximum level of all parents + 1
-      let maxParentLevel = -1;
-      const parents = incomingEdges.get(childId) ?? [];
-      for (const parentId of parents) {
-        const parentLevel = nodeLevels.get(parentId);
-        if (parentLevel !== undefined && parentLevel > maxParentLevel) {
-          maxParentLevel = parentLevel;
-        }
-      }
+      // Skip if already visited (handles cycles)
+      if (visited.has(childId)) continue;
 
-      const childLevel = maxParentLevel + 1;
-      const existingLevel = nodeLevels.get(childId);
+      // Child level is parent level + 1
+      const childLevel = currentLevel + 1;
 
-      // Only update if this is a new node or we found a deeper level
-      if (existingLevel === undefined || childLevel > existingLevel) {
-        // Remove from old level if it existed
-        if (existingLevel !== undefined) {
-          const oldLevelNodes = levelNodes.get(existingLevel) ?? [];
-          const idx = oldLevelNodes.indexOf(childId);
-          if (idx !== -1) {
-            oldLevelNodes.splice(idx, 1);
-            levelNodes.set(existingLevel, oldLevelNodes);
-          }
-        }
-
-        // Add to new level
-        nodeLevels.set(childId, childLevel);
-        const currentLevelNodes = levelNodes.get(childLevel) ?? [];
-        currentLevelNodes.push(childId);
-        levelNodes.set(childLevel, currentLevelNodes);
-        queue.push(childId);
-      }
+      // Mark as visited and assign level
+      visited.add(childId);
+      nodeLevels.set(childId, childLevel);
+      const currentLevelNodes = levelNodes.get(childLevel) ?? [];
+      currentLevelNodes.push(childId);
+      levelNodes.set(childLevel, currentLevelNodes);
+      queue.push(childId);
     }
   }
 
