@@ -9,19 +9,28 @@ type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection
 type CollectionData = ReturnType<typeof import('~/shared/api').useApiCollection>;
 
 /**
- * Transforms JS-style bracket notation to mustache syntax for expr-lang.
- * ["NodeName"].field.subfield → {{NodeName.field.subfield}}
- * ["Node Name"].response.status → {{Node Name.response.status}}
+ * Transforms JS-style syntax to expr-lang compatible syntax.
+ * - ["NodeName"].field.subfield → {{NodeName.field.subfield}}
+ * - ["Node Name"].response.status → {{Node Name.response.status}}
+ * - === → == (JS strict equality to expr-lang equality)
+ * - !== → != (JS strict inequality to expr-lang inequality)
  */
 function normalizeExpressionSyntax(expr: string): string {
   if (!expr) return expr;
 
   // Pattern: ["NodeName"] followed by optional .field.subfield chain
   // Captures: the node name and the field path
-  return expr.replace(
+  let normalized = expr.replace(
     /\["([^"]+)"\]((?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g,
     (_, nodeName, fieldPath) => `{{${nodeName}${fieldPath}}}`,
   );
+
+  // Convert JS strict equality/inequality to expr-lang operators
+  // Must replace === before == to avoid partial matches
+  normalized = normalized.replace(/===/g, '==');
+  normalized = normalized.replace(/!==/g, '!=');
+
+  return normalized;
 }
 
 interface Collections {
