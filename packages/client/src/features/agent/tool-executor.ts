@@ -278,18 +278,22 @@ const executeToolInternal = async (
       const code = args.code as string;
       const nodeName = args.name as string;
 
-      jsCollection.utils.insert({
-        nodeId,
-        code: `export default function(ctx) {\n  ${code}\n}`,
-      });
-
-      nodeCollection.utils.insert({
+      // Call both inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
         flowId,
         kind: NodeKind.JS,
         name: nodeName,
         nodeId,
         position,
       });
+
+      const jsPromise = jsCollection.utils.insert({
+        nodeId,
+        code: `export default function(ctx) {\n  ${code}\n}`,
+      });
+
+      await Promise.all([nodePromise, jsPromise]);
 
       return { nodeId: Ulid.construct(nodeId).toCanonical(), name: nodeName };
     }
@@ -300,18 +304,22 @@ const executeToolInternal = async (
       const condition = normalizeExpressionSyntax(args.condition as string);
       const nodeName = args.name as string;
 
-      conditionCollection.utils.insert({
-        nodeId,
-        condition,
-      });
-
-      nodeCollection.utils.insert({
+      // Call both inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
         flowId,
         kind: NodeKind.CONDITION,
         name: nodeName,
         nodeId,
         position,
       });
+
+      const conditionPromise = conditionCollection.utils.insert({
+        nodeId,
+        condition,
+      });
+
+      await Promise.all([nodePromise, conditionPromise]);
 
       return { nodeId: Ulid.construct(nodeId).toCanonical(), name: nodeName };
     }
@@ -324,20 +332,24 @@ const executeToolInternal = async (
       const errorHandling = args.errorHandling as string;
       const nodeName = args.name as string;
 
-      forCollection.utils.insert({
-        nodeId,
-        iterations,
-        condition,
-        errorHandling: errorHandling === 'break' ? 1 : 0,
-      });
-
-      nodeCollection.utils.insert({
+      // Call both inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
         flowId,
         kind: NodeKind.FOR,
         name: nodeName,
         nodeId,
         position,
       });
+
+      const forPromise = forCollection.utils.insert({
+        nodeId,
+        iterations,
+        condition,
+        errorHandling: errorHandling === 'break' ? 1 : 0,
+      });
+
+      await Promise.all([nodePromise, forPromise]);
 
       return { nodeId: Ulid.construct(nodeId).toCanonical(), name: nodeName };
     }
@@ -350,20 +362,24 @@ const executeToolInternal = async (
       const errorHandling = args.errorHandling as string;
       const nodeName = args.name as string;
 
-      forEachCollection.utils.insert({
-        nodeId,
-        path,
-        condition,
-        errorHandling: errorHandling === 'break' ? 1 : 0,
-      });
-
-      nodeCollection.utils.insert({
+      // Call both inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
         flowId,
         kind: NodeKind.FOR_EACH,
         name: nodeName,
         nodeId,
         position,
       });
+
+      const forEachPromise = forEachCollection.utils.insert({
+        nodeId,
+        path,
+        condition,
+        errorHandling: errorHandling === 'break' ? 1 : 0,
+      });
+
+      await Promise.all([nodePromise, forEachPromise]);
 
       return { nodeId: Ulid.construct(nodeId).toCanonical(), name: nodeName };
     }
@@ -375,6 +391,7 @@ const executeToolInternal = async (
 
       let httpId: Uint8Array;
       let httpIdStr: string;
+      let httpPromise: ReturnType<typeof httpCollection.utils.insert> | undefined;
 
       if (args.httpId) {
         // Use existing HTTP request
@@ -388,7 +405,7 @@ const executeToolInternal = async (
         const method = HTTP_METHOD_MAP[methodStr] ?? HttpMethod.GET;
         const url = (args.url as string) ?? '';
 
-        httpCollection.utils.insert({
+        httpPromise = httpCollection.utils.insert({
           httpId,
           method,
           name: nodeName,
@@ -396,18 +413,22 @@ const executeToolInternal = async (
         });
       }
 
-      nodeHttpCollection.utils.insert({
-        nodeId,
-        httpId,
-      });
-
-      nodeCollection.utils.insert({
+      // Call all inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
         flowId,
         kind: NodeKind.HTTP,
         name: nodeName,
         nodeId,
         position,
       });
+
+      const nodeHttpPromise = nodeHttpCollection.utils.insert({
+        nodeId,
+        httpId,
+      });
+
+      await Promise.all([httpPromise, nodePromise, nodeHttpPromise].filter(Boolean));
 
       return { nodeId: Ulid.construct(nodeId).toCanonical(), httpId: httpIdStr, name: nodeName };
     }
@@ -417,7 +438,8 @@ const executeToolInternal = async (
       const sourceId = parseUlid(args.sourceId as string);
       const targetId = parseUlid(args.targetId as string);
 
-      edgeCollection.utils.insert({
+      // Await to ensure server persistence before returning
+      await edgeCollection.utils.insert({
         edgeId,
         flowId,
         sourceId,
@@ -433,7 +455,8 @@ const executeToolInternal = async (
       const targetId = parseUlid(args.targetId as string);
       const sourceHandle = HANDLE_KIND_MAP[args.sourceHandle as string] ?? HandleKind.THEN;
 
-      edgeCollection.utils.insert({
+      // Await to ensure server persistence before returning
+      await edgeCollection.utils.insert({
         edgeId,
         flowId,
         sourceId,
@@ -487,7 +510,8 @@ const executeToolInternal = async (
       const description = args.description as string;
       const order = args.order as number;
 
-      variableCollection.utils.insert({
+      // Await to ensure server persistence before returning
+      await variableCollection.utils.insert({
         flowVariableId,
         flowId,
         key,
