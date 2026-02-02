@@ -1,6 +1,8 @@
+import { eq } from '@tanstack/react-db';
 import { Ulid } from 'id128';
 import OpenAI from 'openai';
 import { useCallback, useRef, useState } from 'react';
+import { NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import { allToolSchemas } from './tool-schemas';
 import {
   EdgeCollectionSchema,
@@ -15,6 +17,7 @@ import {
 } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
 import { HttpCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/http';
 import { useApiCollection } from '~/shared/api';
+import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
 import { buildSystemPrompt, useFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
@@ -32,7 +35,7 @@ import {
 
 const openai = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: 'VITE_OPENROUTER_API_KEY',
+  apiKey: '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',
   dangerouslyAllowBrowser: true,
 });
 
@@ -44,17 +47,68 @@ const generateId = () => crypto.randomUUID();
 const safeStringify = (value: unknown): string =>
   JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
 
-type NodeCollectionUtils = ReturnType<typeof useApiCollection<typeof NodeCollectionSchema>>['utils'];
+type NodeCollection = ReturnType<typeof useApiCollection<typeof NodeCollectionSchema>>;
+type EdgeCollection = ReturnType<typeof useApiCollection<typeof EdgeCollectionSchema>>;
 
-const applyLayoutToFlow = (
-  flowContext: FlowContextData,
-  nodeCollectionUtils: NodeCollectionUtils,
-): void => {
-  const result = layoutNodes(flowContext.nodes, flowContext.edges, defaultHorizontalConfig());
+const NODE_KIND_NAMES: Record<number, string> = {
+  [NodeKind.UNSPECIFIED]: 'Unknown',
+  [NodeKind.MANUAL_START]: 'ManualStart',
+  [NodeKind.HTTP]: 'HTTP',
+  [NodeKind.CONDITION]: 'Condition',
+  [NodeKind.FOR]: 'For',
+  [NodeKind.FOR_EACH]: 'ForEach',
+  [NodeKind.JS]: 'JavaScript',
+};
+
+/**
+ * Query fresh nodes and edges directly from collections, then apply layout.
+ * This avoids stale context issues when mutations haven't propagated to React state yet.
+ */
+const applyLayoutToFlow = async (
+  flowId: Uint8Array,
+  nodeCollection: NodeCollection,
+  edgeCollection: EdgeCollection,
+): Promise<void> => {
+  // Query fresh nodes directly from the collection
+  const freshNodes = await queryCollection((_) =>
+    _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
+  );
+
+  // Query fresh edges directly from the collection
+  const freshEdges = await queryCollection((_) =>
+    _.from({ edge: edgeCollection }).where((_) => eq(_.edge.flowId, flowId)),
+  );
+
+  // Build node info for layout
+  const nodes = freshNodes
+    .filter((n) => n.nodeId != null)
+    .map((n) => ({
+      id: Ulid.construct(n.nodeId).toCanonical(),
+      name: n.name,
+      kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+      position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
+      state: 'Idle',
+    }));
+
+  // Build a set of valid node IDs for filtering
+  const validNodeIds = new Set(nodes.map((n) => n.id));
+
+  // Build edge info for layout - only include edges where both source and target exist
+  const edges = freshEdges
+    .filter((e) => e.edgeId != null && e.sourceId != null && e.targetId != null)
+    .map((e) => ({
+      id: Ulid.construct(e.edgeId).toCanonical(),
+      sourceId: Ulid.construct(e.sourceId).toCanonical(),
+      targetId: Ulid.construct(e.targetId).toCanonical(),
+      sourceHandle: e.sourceHandle !== undefined ? String(e.sourceHandle) : undefined,
+    }))
+    .filter((e) => validNodeIds.has(e.sourceId) && validNodeIds.has(e.targetId));
+
+  const result = layoutNodes(nodes, edges, defaultHorizontalConfig());
   if (!result) return;
 
   for (const [nodeId, position] of result.positions) {
-    nodeCollectionUtils.update({
+    nodeCollection.utils.update({
       nodeId: Ulid.fromCanonical(nodeId).bytes,
       position: { x: position.x, y: position.y },
     });
@@ -226,12 +280,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           // Apply layout after mutations
           const hadMutations = toolResults.some((tr: ToolResult) => tr.isMutation && !tr.error);
           if (hadMutations) {
-            // Get fresh context after mutations
-            const updatedContext = {
-              ...flowContextRef.current,
-              selectedNodeIds: selectedNodeIdsRef.current,
-            };
-            applyLayoutToFlow(updatedContext, nodeCollection.utils);
+            // Query fresh data directly from collections to avoid stale React context
+            await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
           }
 
           const toolResultMessages: Message[] = toolResults.map((tr) => ({
