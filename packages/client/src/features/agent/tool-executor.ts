@@ -3,7 +3,7 @@ import { Ulid } from 'id128';
 import { FlowService, HandleKind, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import { HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import { request } from '~/shared/api';
-import type { FlowContextData, ToolCall, ToolResult } from './types';
+import type { EdgeInfo, FlowContextData, NodeInfo, ToolCall, ToolResult } from './types';
 
 type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection>['utils'];
 type CollectionData = ReturnType<typeof import('~/shared/api').useApiCollection>;
@@ -56,12 +56,12 @@ interface Collections {
   nodeCollection: { utils: CollectionUtils };
   edgeCollection: { utils: CollectionUtils };
   variableCollection: { utils: CollectionUtils };
-  jsCollection: { utils: CollectionUtils };
-  conditionCollection: { utils: CollectionUtils };
-  forCollection: { utils: CollectionUtils };
-  forEachCollection: { utils: CollectionUtils };
-  nodeHttpCollection: { utils: CollectionUtils };
-  httpCollection: { utils: CollectionUtils };
+  jsCollection: CollectionData;
+  conditionCollection: CollectionData;
+  forCollection: CollectionData;
+  forEachCollection: CollectionData;
+  nodeHttpCollection: CollectionData;
+  httpCollection: CollectionData;
   executionCollection: CollectionData;
 }
 
@@ -90,6 +90,7 @@ const HTTP_METHOD_MAP: Record<string, HttpMethod> = {
 };
 
 const MUTATION_TOOLS = new Set([
+  'applyWorkflowPatch',
   'createJsNode',
   'createConditionNode',
   'createForNode',
@@ -100,6 +101,350 @@ const MUTATION_TOOLS = new Set([
   'disconnectNodes',
   'deleteNode',
 ]);
+
+const SEQUENTIAL_NODE_KINDS = new Set(['ManualStart', 'JavaScript', 'HTTP']);
+const BRANCHING_NODE_KINDS = new Set(['Condition', 'For', 'ForEach']);
+
+type NewNodeSpec = {
+  kind: 'HTTP' | 'JavaScript' | 'Condition' | 'For' | 'ForEach';
+  name: string;
+  clientId?: string;
+  method?: string;
+  url?: string;
+  httpId?: string;
+  code?: string;
+  condition?: string;
+  iterations?: number;
+  errorHandling?: string;
+  path?: string;
+};
+
+type PatchOp =
+  | { op: 'insertBefore'; targetId: string; sourceId?: string; node: NewNodeSpec }
+  | { op: 'insertAfter'; sourceId: string; targetId?: string; node: NewNodeSpec }
+  | { op: 'connect'; sourceId: string; targetId: string; sourceHandle?: string }
+  | { op: 'disconnect'; edgeId: string }
+  | { op: 'deleteNode'; nodeId: string }
+  | { op: 'updateNodeConfig'; nodeId: string; name?: string; position?: { x: number; y: number } }
+  | { op: 'updateNodeCode'; nodeId: string; code: string }
+  | { op: 'updateHttpMethod'; httpId: string; method: string };
+
+type ShadowContext = {
+  nodes: NodeInfo[];
+  edges: EdgeInfo[];
+};
+
+const cloneShadowContext = (flowContext: FlowContextData): ShadowContext => ({
+  nodes: flowContext.nodes.map((node) => ({
+    ...node,
+    position: { ...node.position },
+  })),
+  edges: flowContext.edges.map((edge) => ({ ...edge })),
+});
+
+const resolveNodeId = (id: string, idMap: Map<string, string>): string =>
+  idMap.get(id) ?? id;
+
+const getNodeById = (shadow: ShadowContext, nodeId: string): NodeInfo | undefined =>
+  shadow.nodes.find((node) => node.id === nodeId);
+
+const getEdgeById = (shadow: ShadowContext, edgeId: string): EdgeInfo | undefined =>
+  shadow.edges.find((edge) => edge.id === edgeId);
+
+const getIncomingEdges = (shadow: ShadowContext, nodeId: string): EdgeInfo[] =>
+  shadow.edges.filter((edge) => edge.targetId === nodeId);
+
+const getOutgoingEdges = (shadow: ShadowContext, nodeId: string): EdgeInfo[] =>
+  shadow.edges.filter((edge) => edge.sourceId === nodeId);
+
+const assertNodeExists = (shadow: ShadowContext, nodeId: string): NodeInfo => {
+  const node = getNodeById(shadow, nodeId);
+  if (!node) throw new Error(`Node not found: ${nodeId}`);
+  return node;
+};
+
+const assertEdgeExists = (shadow: ShadowContext, edgeId: string): EdgeInfo => {
+  const edge = getEdgeById(shadow, edgeId);
+  if (!edge) throw new Error(`Edge not found: ${edgeId}`);
+  return edge;
+};
+
+const getHandleKindFromEdge = (edge: EdgeInfo): HandleKind | undefined => {
+  if (edge.sourceHandle == null) return undefined;
+  const handleValue = Number(edge.sourceHandle);
+  if (!Number.isFinite(handleValue)) {
+    throw new Error(`Invalid edge handle value: ${edge.sourceHandle}`);
+  }
+  return handleValue as HandleKind;
+};
+
+const validateConnect = (
+  shadow: ShadowContext,
+  sourceNode: NodeInfo,
+  sourceHandle?: string,
+): HandleKind | undefined => {
+  const isSequential = SEQUENTIAL_NODE_KINDS.has(sourceNode.kind);
+  const isBranching = BRANCHING_NODE_KINDS.has(sourceNode.kind);
+
+  if (isSequential) {
+    // If a sourceHandle is provided for a sequential node, ignore it to be tolerant of tool misuse.
+    return undefined;
+  }
+
+  if (isBranching) {
+    if (!sourceHandle) {
+      throw new Error(`Branching node "${sourceNode.name}" requires sourceHandle.`);
+    }
+    const validHandles = sourceNode.kind === 'Condition' ? ['then', 'else'] : ['then', 'loop'];
+    if (!validHandles.includes(sourceHandle)) {
+      throw new Error(
+        `Invalid sourceHandle "${sourceHandle}" for ${sourceNode.kind}. Valid handles: ${validHandles.join(', ')}.`,
+      );
+    }
+    const handleKind = HANDLE_KIND_MAP[sourceHandle];
+    const handleValue = String(handleKind);
+    const existing = shadow.edges.find(
+      (edge) =>
+        edge.sourceId === sourceNode.id &&
+        edge.sourceHandle != null &&
+        edge.sourceHandle === handleValue,
+    );
+    if (existing) {
+      throw new Error(
+        `The "${sourceHandle}" handle of "${sourceNode.name}" is already connected.`,
+      );
+    }
+    return handleKind;
+  }
+
+  throw new Error(`Unsupported node type for connection: ${sourceNode.kind}`);
+};
+
+const insertEdge = async (
+  shadow: ShadowContext,
+  edgeCollection: Collections['edgeCollection'],
+  flowId: Uint8Array,
+  sourceId: string,
+  targetId: string,
+  sourceHandle?: HandleKind,
+): Promise<EdgeInfo> => {
+  const edgeId = Ulid.generate().bytes;
+  await edgeCollection.utils.insert({
+    edgeId,
+    flowId,
+    sourceId: parseUlid(sourceId),
+    targetId: parseUlid(targetId),
+    sourceHandle,
+  });
+  const edgeInfo: EdgeInfo = {
+    id: Ulid.construct(edgeId).toCanonical(),
+    sourceId,
+    targetId,
+    sourceHandle: sourceHandle != null ? String(sourceHandle) : undefined,
+  };
+  shadow.edges.push(edgeInfo);
+  return edgeInfo;
+};
+
+const deleteEdge = async (
+  shadow: ShadowContext,
+  edgeCollection: Collections['edgeCollection'],
+  edgeId: string,
+): Promise<void> => {
+  await edgeCollection.utils.delete({ edgeId: parseUlid(edgeId) });
+  shadow.edges = shadow.edges.filter((edge) => edge.id !== edgeId);
+};
+
+const deleteNode = async (
+  shadow: ShadowContext,
+  nodeCollection: Collections['nodeCollection'],
+  edgeCollection: Collections['edgeCollection'],
+  nodeId: string,
+): Promise<void> => {
+  const edgesToDelete = shadow.edges.filter(
+    (edge) => edge.sourceId === nodeId || edge.targetId === nodeId,
+  );
+  for (const edge of edgesToDelete) {
+    await edgeCollection.utils.delete({ edgeId: parseUlid(edge.id) });
+  }
+  shadow.edges = shadow.edges.filter(
+    (edge) => edge.sourceId !== nodeId && edge.targetId !== nodeId,
+  );
+  await nodeCollection.utils.delete({ nodeId: parseUlid(nodeId) });
+  shadow.nodes = shadow.nodes.filter((node) => node.id !== nodeId);
+};
+
+const createNodeFromSpec = async (
+  spec: NewNodeSpec,
+  flowId: Uint8Array,
+  collections: Collections,
+): Promise<NodeInfo> => {
+  const { nodeCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection } =
+    collections;
+  const nodeId = Ulid.generate().bytes;
+  const nodeIdStr = Ulid.construct(nodeId).toCanonical();
+  const position = { x: 0, y: 0 };
+  const nodeName = normalizeNodeName(spec.name);
+
+  const baseNode: NodeInfo = {
+    id: nodeIdStr,
+    name: nodeName,
+    kind: spec.kind,
+    position,
+    state: 'Idle',
+  };
+
+  switch (spec.kind) {
+    case 'JavaScript': {
+      if (!spec.code) throw new Error('JavaScript node requires code.');
+      const code = normalizeJsCodeReferences(spec.code);
+      await Promise.all([
+        nodeCollection.utils.insert({
+          flowId,
+          kind: NodeKind.JS,
+          name: nodeName,
+          nodeId,
+          position,
+        }),
+        jsCollection.utils.insert({
+          nodeId,
+          code: `export default function(ctx) {\n  ${code}\n}`,
+        }),
+      ]);
+      return baseNode;
+    }
+    case 'Condition': {
+      if (!spec.condition) throw new Error('Condition node requires condition.');
+      const condition = normalizeConditionSyntax(spec.condition);
+      await Promise.all([
+        nodeCollection.utils.insert({
+          flowId,
+          kind: NodeKind.CONDITION,
+          name: nodeName,
+          nodeId,
+          position,
+        }),
+        conditionCollection.utils.insert({
+          nodeId,
+          condition,
+        }),
+      ]);
+      return baseNode;
+    }
+    case 'For': {
+      if (spec.iterations == null) throw new Error('For node requires iterations.');
+      if (!spec.condition) throw new Error('For node requires condition.');
+      const condition = normalizeConditionSyntax(spec.condition);
+      const errorHandling = spec.errorHandling ?? 'continue';
+      if (!['break', 'continue'].includes(errorHandling)) {
+        throw new Error('For node errorHandling must be "break" or "continue".');
+      }
+      await Promise.all([
+        nodeCollection.utils.insert({
+          flowId,
+          kind: NodeKind.FOR,
+          name: nodeName,
+          nodeId,
+          position,
+        }),
+        forCollection.utils.insert({
+          nodeId,
+          iterations: spec.iterations,
+          condition,
+          errorHandling: errorHandling === 'break' ? 1 : 0,
+        }),
+      ]);
+      return baseNode;
+    }
+    case 'ForEach': {
+      if (!spec.path) throw new Error('ForEach node requires path.');
+      if (!spec.condition) throw new Error('ForEach node requires condition.');
+      const path = normalizeConditionSyntax(spec.path);
+      const condition = normalizeConditionSyntax(spec.condition);
+      const errorHandling = spec.errorHandling ?? 'continue';
+      if (!['break', 'continue'].includes(errorHandling)) {
+        throw new Error('ForEach node errorHandling must be "break" or "continue".');
+      }
+      await Promise.all([
+        nodeCollection.utils.insert({
+          flowId,
+          kind: NodeKind.FOR_EACH,
+          name: nodeName,
+          nodeId,
+          position,
+        }),
+        forEachCollection.utils.insert({
+          nodeId,
+          path,
+          condition,
+          errorHandling: errorHandling === 'break' ? 1 : 0,
+        }),
+      ]);
+      return baseNode;
+    }
+    case 'HTTP': {
+      let httpId: Uint8Array;
+      let httpIdStr: string;
+      let httpMethod: string | undefined;
+      let httpPromise: ReturnType<typeof httpCollection.utils.insert> | undefined;
+
+      if (spec.httpId) {
+        httpIdStr = spec.httpId;
+        httpId = parseUlid(spec.httpId);
+        if (spec.method) {
+          const methodStr = spec.method.toUpperCase();
+          if (!HTTP_METHOD_MAP[methodStr]) {
+            throw new Error(
+              `Invalid HTTP method: ${spec.method}. Valid methods are: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`,
+            );
+          }
+          httpMethod = methodStr;
+        }
+      } else {
+        httpId = Ulid.generate().bytes;
+        httpIdStr = Ulid.construct(httpId).toCanonical();
+        const methodStr = (spec.method ?? 'GET').toUpperCase();
+        const method = HTTP_METHOD_MAP[methodStr];
+        if (method === undefined) {
+          throw new Error(
+            `Invalid HTTP method: ${spec.method}. Valid methods are: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`,
+          );
+        }
+        const url = spec.url ?? '';
+        httpMethod = methodStr;
+        httpPromise = httpCollection.utils.insert({
+          httpId,
+          method,
+          name: nodeName,
+          url,
+        });
+      }
+
+      const nodePromise = nodeCollection.utils.insert({
+        flowId,
+        kind: NodeKind.HTTP,
+        name: nodeName,
+        nodeId,
+        position,
+      });
+
+      const nodeHttpPromise = nodeHttpCollection.utils.insert({
+        nodeId,
+        httpId,
+      });
+
+      await Promise.all([httpPromise, nodePromise, nodeHttpPromise].filter(Boolean));
+
+      return {
+        ...baseNode,
+        httpId: httpIdStr,
+        httpMethod,
+      };
+    }
+    default:
+      throw new Error(`Unsupported node kind: ${spec.kind}`);
+  }
+};
 
 export const executeToolCall = async (
   toolCall: ToolCall,
@@ -143,6 +488,246 @@ const executeToolInternal = async (
   } = collections;
 
   switch (name) {
+    case 'applyWorkflowPatch': {
+      if (!Array.isArray(args.ops)) {
+        throw new Error('applyWorkflowPatch expects "ops" to be an array.');
+      }
+
+      const ops = args.ops as PatchOp[];
+      const shadow = cloneShadowContext(flowContext);
+      const idMap = new Map<string, string>();
+      const appliedOps: Array<{ index: number; op: PatchOp; result?: unknown }> = [];
+
+      for (let index = 0; index < ops.length; index += 1) {
+        const op = ops[index] as PatchOp;
+        try {
+          switch (op.op) {
+            case 'insertBefore': {
+              const targetId = resolveNodeId(op.targetId, idMap);
+              const targetNode = assertNodeExists(shadow, targetId);
+              let sourceId = op.sourceId ? resolveNodeId(op.sourceId, idMap) : undefined;
+              let edgeToReplace: EdgeInfo | undefined;
+
+              if (sourceId) {
+                edgeToReplace = shadow.edges.find(
+                  (edge) => edge.sourceId === sourceId && edge.targetId === targetId,
+                );
+                if (!edgeToReplace) {
+                  throw new Error(
+                    `No edge found from source ${sourceId} to target ${targetId}.`,
+                  );
+                }
+              } else {
+                const incoming = getIncomingEdges(shadow, targetId);
+                if (incoming.length !== 1) {
+                  throw new Error(
+                    `insertBefore requires a single incoming edge to target ${targetId}.`,
+                  );
+                }
+                edgeToReplace = incoming[0]!;
+                sourceId = edgeToReplace.sourceId;
+              }
+
+              const sourceNode = assertNodeExists(shadow, sourceId);
+              const handleKind = getHandleKindFromEdge(edgeToReplace);
+
+              if (BRANCHING_NODE_KINDS.has(sourceNode.kind) && handleKind == null) {
+                throw new Error(
+                  `Branching node "${sourceNode.name}" requires a source handle.`,
+                );
+              }
+              if (SEQUENTIAL_NODE_KINDS.has(sourceNode.kind) && handleKind != null) {
+                throw new Error(
+                  `Sequential node "${sourceNode.name}" cannot have a source handle.`,
+                );
+              }
+
+              const newNode = await createNodeFromSpec(op.node, flowId, collections);
+              shadow.nodes.push(newNode);
+              if (op.node.clientId) {
+                idMap.set(op.node.clientId, newNode.id);
+              }
+
+              await deleteEdge(shadow, edgeCollection, edgeToReplace.id);
+              await insertEdge(shadow, edgeCollection, flowId, sourceId, newNode.id, handleKind);
+
+              const nextHandle = BRANCHING_NODE_KINDS.has(newNode.kind)
+                ? HandleKind.THEN
+                : undefined;
+              await insertEdge(shadow, edgeCollection, flowId, newNode.id, targetId, nextHandle);
+
+              appliedOps.push({
+                index,
+                op,
+                result: { nodeId: newNode.id, targetId: targetNode.id },
+              });
+              break;
+            }
+            case 'insertAfter': {
+              const sourceId = resolveNodeId(op.sourceId, idMap);
+              const sourceNode = assertNodeExists(shadow, sourceId);
+              let targetId = op.targetId ? resolveNodeId(op.targetId, idMap) : undefined;
+              let edgeToReplace: EdgeInfo | undefined;
+
+              if (targetId) {
+                edgeToReplace = shadow.edges.find(
+                  (edge) => edge.sourceId === sourceId && edge.targetId === targetId,
+                );
+                if (!edgeToReplace) {
+                  throw new Error(
+                    `No edge found from source ${sourceId} to target ${targetId}.`,
+                  );
+                }
+              } else {
+                const outgoing = getOutgoingEdges(shadow, sourceId);
+                if (outgoing.length !== 1) {
+                  throw new Error(
+                    `insertAfter requires a single outgoing edge from source ${sourceId}.`,
+                  );
+                }
+                edgeToReplace = outgoing[0]!;
+                targetId = edgeToReplace.targetId;
+              }
+
+              const targetNode = assertNodeExists(shadow, targetId);
+              const handleKind = getHandleKindFromEdge(edgeToReplace);
+
+              if (BRANCHING_NODE_KINDS.has(sourceNode.kind) && handleKind == null) {
+                throw new Error(
+                  `Branching node "${sourceNode.name}" requires a source handle.`,
+                );
+              }
+              if (SEQUENTIAL_NODE_KINDS.has(sourceNode.kind) && handleKind != null) {
+                throw new Error(
+                  `Sequential node "${sourceNode.name}" cannot have a source handle.`,
+                );
+              }
+
+              const newNode = await createNodeFromSpec(op.node, flowId, collections);
+              shadow.nodes.push(newNode);
+              if (op.node.clientId) {
+                idMap.set(op.node.clientId, newNode.id);
+              }
+
+              await deleteEdge(shadow, edgeCollection, edgeToReplace.id);
+              await insertEdge(shadow, edgeCollection, flowId, sourceId, newNode.id, handleKind);
+
+              const nextHandle = BRANCHING_NODE_KINDS.has(newNode.kind)
+                ? HandleKind.THEN
+                : undefined;
+              await insertEdge(shadow, edgeCollection, flowId, newNode.id, targetId, nextHandle);
+
+              appliedOps.push({
+                index,
+                op,
+                result: { nodeId: newNode.id, sourceId: sourceNode.id, targetId: targetNode.id },
+              });
+              break;
+            }
+            case 'connect': {
+              const sourceId = resolveNodeId(op.sourceId, idMap);
+              const targetId = resolveNodeId(op.targetId, idMap);
+              const sourceNode = assertNodeExists(shadow, sourceId);
+              assertNodeExists(shadow, targetId);
+
+              const handleKind = validateConnect(shadow, sourceNode, op.sourceHandle);
+              const existing = shadow.edges.find(
+                (edge) =>
+                  edge.sourceId === sourceId &&
+                  edge.targetId === targetId &&
+                  (handleKind == null
+                    ? edge.sourceHandle == null
+                    : edge.sourceHandle === String(handleKind)),
+              );
+              if (existing) {
+                throw new Error('Edge already exists between source and target.');
+              }
+
+              const edge = await insertEdge(
+                shadow,
+                edgeCollection,
+                flowId,
+                sourceId,
+                targetId,
+                handleKind,
+              );
+              appliedOps.push({ index, op, result: { edgeId: edge.id } });
+              break;
+            }
+            case 'disconnect': {
+              assertEdgeExists(shadow, op.edgeId);
+              await deleteEdge(shadow, edgeCollection, op.edgeId);
+              appliedOps.push({ index, op, result: { success: true } });
+              break;
+            }
+            case 'deleteNode': {
+              const nodeId = resolveNodeId(op.nodeId, idMap);
+              assertNodeExists(shadow, nodeId);
+              await deleteNode(shadow, nodeCollection, edgeCollection, nodeId);
+              appliedOps.push({ index, op, result: { success: true } });
+              break;
+            }
+            case 'updateNodeConfig': {
+              const nodeId = resolveNodeId(op.nodeId, idMap);
+              const node = assertNodeExists(shadow, nodeId);
+              const updates: Record<string, unknown> = { nodeId: parseUlid(nodeId) };
+              if (op.name != null) updates.name = op.name;
+              if (op.position) updates.position = op.position;
+              nodeCollection.utils.update(updates);
+
+              if (op.name != null) node.name = op.name;
+              if (op.position) node.position = op.position;
+
+              appliedOps.push({ index, op, result: { success: true } });
+              break;
+            }
+            case 'updateNodeCode': {
+              const nodeId = resolveNodeId(op.nodeId, idMap);
+              assertNodeExists(shadow, nodeId);
+              const code = op.code;
+              jsCollection.utils.update({
+                nodeId: parseUlid(nodeId),
+                code: `export default function(ctx) {\n  ${code}\n}`,
+              });
+              appliedOps.push({ index, op, result: { success: true } });
+              break;
+            }
+            case 'updateHttpMethod': {
+              const methodStr = op.method.toUpperCase();
+              const method = HTTP_METHOD_MAP[methodStr];
+              if (method === undefined) {
+                throw new Error(
+                  `Invalid HTTP method: ${op.method}. Valid methods are: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`,
+                );
+              }
+              httpCollection.utils.update({
+                httpId: parseUlid(op.httpId),
+                method,
+              });
+              shadow.nodes.forEach((node) => {
+                if (node.httpId === op.httpId) {
+                  node.httpMethod = methodStr;
+                }
+              });
+              appliedOps.push({ index, op, result: { success: true, method: methodStr } });
+              break;
+            }
+            default:
+              throw new Error(`Unknown patch op: ${(op as { op?: string }).op ?? 'unknown'}`);
+          }
+        } catch (error) {
+          return {
+            appliedOps,
+            error: {
+              index,
+              message: error instanceof Error ? error.message : String(error),
+            },
+          };
+        }
+      }
+
+      return { appliedOps };
+    }
     // Read operations - return workflow data
     case 'getWorkflow': {
       return flowContext;
@@ -164,7 +749,96 @@ const executeToolInternal = async (
       const nodeId = args.nodeId as string;
       const node = flowContext.nodes.find((n) => n.id === nodeId);
       if (!node) throw new Error(`Node not found: ${nodeId}`);
-      return node;
+
+      // Build the collection key format: {"nodeId":"<canonical-ulid>"}
+      const nodeKey = JSON.stringify({ nodeId });
+
+      // Fetch node-specific data based on node kind
+      let nodeSpecificData: Record<string, unknown> | undefined;
+
+      switch (node.kind) {
+        case 'JavaScript': {
+          const jsData = jsCollection.utils.state().collection.get(nodeKey);
+          if (jsData) {
+            nodeSpecificData = { code: (jsData as { code?: string }).code };
+          }
+          break;
+        }
+        case 'Condition': {
+          const condData = conditionCollection.utils.state().collection.get(nodeKey);
+          if (condData) {
+            nodeSpecificData = { condition: (condData as { condition?: string }).condition };
+          }
+          break;
+        }
+        case 'For': {
+          const forData = forCollection.utils.state().collection.get(nodeKey);
+          if (forData) {
+            const data = forData as { iterations?: number; condition?: string; errorHandling?: number };
+            const ERROR_HANDLING_NAMES: Record<number, string> = {
+              0: 'throw',
+              1: 'ignore',
+              2: 'break',
+            };
+            nodeSpecificData = {
+              iterations: data.iterations,
+              condition: data.condition,
+              errorHandling: ERROR_HANDLING_NAMES[data.errorHandling ?? 0] ?? 'throw',
+            };
+          }
+          break;
+        }
+        case 'ForEach': {
+          const forEachData = forEachCollection.utils.state().collection.get(nodeKey);
+          if (forEachData) {
+            const data = forEachData as { path?: string; condition?: string; errorHandling?: number };
+            const ERROR_HANDLING_NAMES: Record<number, string> = {
+              0: 'throw',
+              1: 'ignore',
+              2: 'break',
+            };
+            nodeSpecificData = {
+              path: data.path,
+              breakIf: data.condition,
+              errorHandling: ERROR_HANDLING_NAMES[data.errorHandling ?? 0] ?? 'throw',
+            };
+          }
+          break;
+        }
+        case 'HTTP': {
+          const nodeHttpData = nodeHttpCollection.utils.state().collection.get(nodeKey);
+          if (nodeHttpData) {
+            const httpIdBytes = (nodeHttpData as { httpId?: Uint8Array }).httpId;
+            if (httpIdBytes) {
+              const httpIdStr = Ulid.construct(httpIdBytes).toCanonical();
+              const httpKey = JSON.stringify({ httpId: httpIdStr });
+              const httpData = httpCollection.utils.state().collection.get(httpKey);
+              if (httpData) {
+                const data = httpData as { url?: string; method?: number; name?: string };
+                const HTTP_METHOD_NAMES: Record<number, string> = {
+                  0: 'UNSPECIFIED',
+                  1: 'GET',
+                  2: 'POST',
+                  3: 'PUT',
+                  4: 'PATCH',
+                  5: 'DELETE',
+                  6: 'HEAD',
+                  7: 'OPTIONS',
+                };
+                nodeSpecificData = {
+                  httpId: httpIdStr,
+                  url: data.url,
+                  method: HTTP_METHOD_NAMES[data.method ?? 0] ?? 'UNSPECIFIED',
+                  requestName: data.name,
+                };
+              }
+            }
+          }
+          break;
+        }
+      }
+
+      return nodeSpecificData ? { ...node, ...nodeSpecificData } : node;
     }
 
     case 'getEdge': {
@@ -481,16 +1155,6 @@ const executeToolInternal = async (
           throw new Error(
             `Node "${sourceNode.name}" is a ${sourceNode.kind} node. ` +
               `Use connectBranchingNodes instead (with sourceHandle: 'then', 'else', or 'loop').`,
-          );
-        }
-
-        // Validation: Check source doesn't already have outgoing edge
-        const existingEdges = flowContext.edges.filter((e) => e.sourceId === sourceIdStr);
-        if (existingEdges.length > 0) {
-          const existingTarget = flowContext.nodes.find((n) => n.id === existingEdges[0]!.targetId);
-          throw new Error(
-            `Node "${sourceNode.name}" already connects to "${existingTarget?.name ?? existingEdges[0]!.targetId}". ` +
-              `Sequential nodes can only have one output. Use disconnectNodes first to reconnect.`,
           );
         }
       }

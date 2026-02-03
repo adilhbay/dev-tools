@@ -35,17 +35,22 @@ import {
 
 const openai = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: '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',
+  apiKey: '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',
   dangerouslyAllowBrowser: true,
 });
 
-const MODEL = 'minimax/minimax-m2.1';
+const MODEL = 'moonshotai/kimi-k2.5';
 
 const generateId = () => crypto.randomUUID();
 
 /** JSON stringify with BigInt support */
 const safeStringify = (value: unknown): string =>
   JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
+
+const formatToolCallSummary = (name: string, args: Record<string, unknown>): string => {
+  const serialized = safeStringify(args);
+  return `${name} ${serialized}`;
+};
 
 type NodeCollection = ReturnType<typeof useApiCollection<typeof NodeCollectionSchema>>;
 type EdgeCollection = ReturnType<typeof useApiCollection<typeof EdgeCollectionSchema>>;
@@ -123,6 +128,252 @@ const clientToolSchemas: ToolSchema[] = [
       type: 'object',
       properties: {},
       required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'applyWorkflowPatch',
+    description:
+      'Apply a structured set of edits to the workflow graph as a single patch.',
+    parameters: {
+      type: 'object',
+      properties: {
+        ops: {
+          type: 'array',
+          items: {
+            oneOf: [
+              {
+                type: 'object',
+                properties: {
+                  op: { const: 'insertBefore' },
+                  targetId: { type: 'string' },
+                  sourceId: { type: 'string' },
+                  node: {
+                    oneOf: [
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'HTTP' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          method: {
+                            type: 'string',
+                            enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
+                          },
+                          url: { type: 'string' },
+                          httpId: { type: 'string' },
+                        },
+                        required: ['kind', 'name'],
+                        additionalProperties: false,
+                      },
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'JavaScript' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          code: { type: 'string' },
+                        },
+                        required: ['kind', 'name', 'code'],
+                        additionalProperties: false,
+                      },
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'Condition' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          condition: { type: 'string' },
+                        },
+                        required: ['kind', 'name', 'condition'],
+                        additionalProperties: false,
+                      },
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'For' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          iterations: { type: 'number' },
+                          condition: { type: 'string' },
+                          errorHandling: { type: 'string', enum: ['break', 'continue'] },
+                        },
+                        required: ['kind', 'name', 'iterations', 'condition', 'errorHandling'],
+                        additionalProperties: false,
+                      },
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'ForEach' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          path: { type: 'string' },
+                          condition: { type: 'string' },
+                          errorHandling: { type: 'string', enum: ['break', 'continue'] },
+                        },
+                        required: ['kind', 'name', 'path', 'condition', 'errorHandling'],
+                        additionalProperties: false,
+                      },
+                    ],
+                  },
+                },
+                required: ['op', 'targetId', 'node'],
+                additionalProperties: false,
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { const: 'insertAfter' },
+                  sourceId: { type: 'string' },
+                  targetId: { type: 'string' },
+                  node: {
+                    oneOf: [
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'HTTP' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          method: {
+                            type: 'string',
+                            enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
+                          },
+                          url: { type: 'string' },
+                          httpId: { type: 'string' },
+                        },
+                        required: ['kind', 'name'],
+                        additionalProperties: false,
+                      },
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'JavaScript' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          code: { type: 'string' },
+                        },
+                        required: ['kind', 'name', 'code'],
+                        additionalProperties: false,
+                      },
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'Condition' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          condition: { type: 'string' },
+                        },
+                        required: ['kind', 'name', 'condition'],
+                        additionalProperties: false,
+                      },
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'For' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          iterations: { type: 'number' },
+                          condition: { type: 'string' },
+                          errorHandling: { type: 'string', enum: ['break', 'continue'] },
+                        },
+                        required: ['kind', 'name', 'iterations', 'condition', 'errorHandling'],
+                        additionalProperties: false,
+                      },
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'ForEach' },
+                          name: { type: 'string' },
+                          clientId: { type: 'string' },
+                          path: { type: 'string' },
+                          condition: { type: 'string' },
+                          errorHandling: { type: 'string', enum: ['break', 'continue'] },
+                        },
+                        required: ['kind', 'name', 'path', 'condition', 'errorHandling'],
+                        additionalProperties: false,
+                      },
+                    ],
+                  },
+                },
+                required: ['op', 'sourceId', 'node'],
+                additionalProperties: false,
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { const: 'connect' },
+                  sourceId: { type: 'string' },
+                  targetId: { type: 'string' },
+                  sourceHandle: { type: 'string', enum: ['then', 'else', 'loop'] },
+                },
+                required: ['op', 'sourceId', 'targetId'],
+                additionalProperties: false,
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { const: 'disconnect' },
+                  edgeId: { type: 'string' },
+                },
+                required: ['op', 'edgeId'],
+                additionalProperties: false,
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { const: 'deleteNode' },
+                  nodeId: { type: 'string' },
+                },
+                required: ['op', 'nodeId'],
+                additionalProperties: false,
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { const: 'updateNodeConfig' },
+                  nodeId: { type: 'string' },
+                  name: { type: 'string' },
+                  position: {
+                    type: 'object',
+                    properties: {
+                      x: { type: 'number' },
+                      y: { type: 'number' },
+                    },
+                    required: ['x', 'y'],
+                    additionalProperties: false,
+                  },
+                },
+                required: ['op', 'nodeId'],
+                additionalProperties: false,
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { const: 'updateNodeCode' },
+                  nodeId: { type: 'string' },
+                  code: { type: 'string' },
+                },
+                required: ['op', 'nodeId', 'code'],
+                additionalProperties: false,
+              },
+              {
+                type: 'object',
+                properties: {
+                  op: { const: 'updateHttpMethod' },
+                  httpId: { type: 'string' },
+                  method: {
+                    type: 'string',
+                    enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
+                  },
+                },
+                required: ['op', 'httpId', 'method'],
+                additionalProperties: false,
+              },
+            ],
+          },
+        },
+      },
+      required: ['ops'],
       additionalProperties: false,
     },
   },
@@ -254,11 +505,15 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         let assistantMessage = response.choices[0]?.message;
 
         while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0) {
-          const toolCalls: ToolCall[] = assistantMessage.tool_calls.map((tc) => ({
-            id: tc.id,
-            name: tc.function.name,
-            arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>,
-          }));
+          const toolCalls: ToolCall[] = assistantMessage.tool_calls.map((tc) => {
+            const args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+            return {
+              id: tc.id,
+              name: tc.function.name,
+              arguments: args,
+              summary: formatToolCallSummary(tc.function.name, args),
+            };
+          });
 
           const toolMessage: Message = {
             id: generateId(),
