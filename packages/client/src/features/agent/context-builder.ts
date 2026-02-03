@@ -150,8 +150,19 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
       enabled: v.enabled,
     }));
 
-  const executions: NodeExecutionInfo[] = (executionsData ?? [])
-    .filter((e) => e.nodeExecutionId != null)
+  // Only keep the most recent execution per node to limit context size
+  // Input/output are stored but will be truncated when accessed via getNodeOutput
+  const executionsByNode = new Map<string, typeof executionsData[0]>();
+  for (const e of executionsData ?? []) {
+    if (e.nodeExecutionId == null) continue;
+    const nodeIdStr = Ulid.construct(e.nodeId).toCanonical();
+    const existing = executionsByNode.get(nodeIdStr);
+    if (!existing || (e.completedAt && (!existing.completedAt || e.completedAt > existing.completedAt))) {
+      executionsByNode.set(nodeIdStr, e);
+    }
+  }
+
+  const executions: NodeExecutionInfo[] = Array.from(executionsByNode.values())
     .map((e) => ({
       id: Ulid.construct(e.nodeExecutionId).toCanonical(),
       nodeId: Ulid.construct(e.nodeId).toCanonical(),
@@ -170,6 +181,69 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
     variables,
     executions,
   };
+};
+
+const buildFlowEndpointsSection = (context: FlowContextData): string => {
+  // Build outgoing edge map
+  const outgoing = new Map<string, string[]>();
+  for (const e of context.edges) {
+    const list = outgoing.get(e.sourceId) ?? [];
+    list.push(e.targetId);
+    outgoing.set(e.sourceId, list);
+  }
+
+  // Find sequential nodes with no outgoing edges
+  const endpoints = context.nodes.filter((n) => {
+    const isSequential = ['ManualStart', 'JavaScript', 'HTTP'].includes(n.kind);
+    const hasOutgoing = (outgoing.get(n.id) ?? []).length > 0;
+    return isSequential && !hasOutgoing;
+  });
+
+  if (endpoints.length === 0) return '';
+
+  const list = endpoints.map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind})`).join('\n');
+
+  return `
+
+FLOW ENDPOINTS (nodes ready for next connection):
+${list}`;
+};
+
+const buildOrphanNodesSection = (context: FlowContextData): string => {
+  const startNode = context.nodes.find((n) => n.kind === 'ManualStart');
+  if (!startNode) return '';
+
+  // Build outgoing edge map
+  const outgoing = new Map<string, string[]>();
+  for (const e of context.edges) {
+    const list = outgoing.get(e.sourceId) ?? [];
+    list.push(e.targetId);
+    outgoing.set(e.sourceId, list);
+  }
+
+  // BFS to find reachable nodes
+  const reachable = new Set<string>();
+  const queue = [startNode.id];
+  while (queue.length > 0) {
+    const nodeId = queue.shift()!;
+    if (reachable.has(nodeId)) continue;
+    reachable.add(nodeId);
+    queue.push(...(outgoing.get(nodeId) ?? []));
+  }
+
+  // Find orphans
+  const orphans = context.nodes.filter((n) => n.kind !== 'ManualStart' && !reachable.has(n.id));
+
+  if (orphans.length === 0) return '';
+
+  const list = orphans
+    .map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind}) - NOT CONNECTED`)
+    .join('\n');
+
+  return `
+
+ORPHAN NODES (not reachable from start):
+${list}`;
 };
 
 export const buildSystemPrompt = (context: FlowContextData): string => {
@@ -224,7 +298,7 @@ CONNECTIONS:
 ${edgesList || '  (no connections)'}
 
 VARIABLES:
-${variablesList || '  (no variables)'}${buildSelectedNodesSection(context)}${errorSection}
+${variablesList || '  (no variables)'}${buildSelectedNodesSection(context)}${buildFlowEndpointsSection(context)}${buildOrphanNodesSection(context)}${errorSection}
 
 IMPORTANT RULES:
 1. To find the start node, look for a node with kind "ManualStart".
@@ -236,7 +310,9 @@ IMPORTANT RULES:
 7. If a node has State: Failure, use getNodeExecutions to get detailed error information.
 8. Use getNodeOutput to inspect the input/output data of a node's most recent execution.
 9. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
-10. Node positions are automatically calculated - you do not need to specify positions when creating nodes.`;
+10. Node positions are automatically calculated - you do not need to specify positions when creating nodes.
+11. Check FLOW ENDPOINTS to see where new nodes should connect.
+12. ORPHAN NODES are mistakes - they need to be connected to the flow.`;
 };
 
 const buildSelectedNodesSection = (context: FlowContextData): string => {

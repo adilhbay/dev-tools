@@ -244,13 +244,29 @@ const executeToolInternal = async (
 
       const latest = executions[0]!;
       const node = flowContext.nodes.find((n) => n.id === nodeId);
+
+      // Truncate large input/output to prevent massive responses
+      const MAX_OUTPUT_LENGTH = 10000;
+      const truncateData = (data: unknown): unknown => {
+        if (data == null) return data;
+        const str = typeof data === 'string' ? data : JSON.stringify(data);
+        if (str.length <= MAX_OUTPUT_LENGTH) {
+          return data;
+        }
+        return {
+          _truncated: true,
+          _originalLength: str.length,
+          preview: str.slice(0, MAX_OUTPUT_LENGTH) + '...',
+        };
+      };
+
       return {
         nodeId,
         nodeName: node?.name,
         executionId: latest.id,
         state: latest.state,
-        input: latest.input,
-        output: latest.output,
+        input: truncateData(latest.input),
+        output: truncateData(latest.output),
       };
     }
 
