@@ -29,7 +29,7 @@ export const AgentPanel = () => {
   };
 
   return (
-    <div className={tw`flex h-full flex-col bg-slate-950 font-mono text-sm text-slate-200`}>
+    <div className={tw`flex h-full flex-col bg-slate-950 font-mono text-sm text-slate-200 select-text`}>
       {/* Header */}
       <div className={tw`flex items-center gap-2 border-b border-slate-800 px-3 py-1.5`}>
         <div className={tw`flex flex-1 items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-400`}>
@@ -124,7 +124,7 @@ const TerminalMessage = ({ message }: { message: Message }) => {
         {message.toolCalls.map((tc) => (
           <div key={tc.id} className={tw`flex gap-2`}>
             <span className={tw`text-yellow-400`}>$</span>
-            <span className={tw`text-slate-400`}>{tc.name}</span>
+            <span className={tw`text-slate-400`}>{tc.summary ?? tc.name}</span>
           </div>
         ))}
       </div>
@@ -183,22 +183,19 @@ const ToolResultMessage = ({ content }: { content: string }) => {
   const isLong = content.length > 80;
 
   return (
-    <div className={tw`text-slate-600`}>
-      <button
-        type='button'
-        onClick={() => isLong && setExpanded(!expanded)}
-        className={tw`flex items-center gap-1 text-left hover:text-slate-500`}
-      >
-        <span className={tw`text-slate-700`}>←</span>
-        <span className={tw`font-mono text-xs`}>
-          {expanded ? content : preview}
+    <div
+      onClick={() => isLong && setExpanded(!expanded)}
+      className={tw`flex items-center gap-1 text-slate-600 ${isLong ? 'cursor-pointer hover:text-slate-500' : ''}`}
+    >
+      <span className={tw`text-slate-700`}>←</span>
+      <span className={tw`font-mono text-xs select-text`}>
+        {expanded ? content : preview}
+      </span>
+      {isLong && (
+        <span className={tw`ml-1 text-[10px] text-slate-700`}>
+          {expanded ? '▲' : '▼'}
         </span>
-        {isLong && (
-          <span className={tw`ml-1 text-[10px] text-slate-700`}>
-            {expanded ? '▲' : '▼'}
-          </span>
-        )}
-      </button>
+      )}
     </div>
   );
 };
