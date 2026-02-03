@@ -9,28 +9,47 @@ type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection
 type CollectionData = ReturnType<typeof import('~/shared/api').useApiCollection>;
 
 /**
- * Transforms JS-style syntax to expr-lang compatible syntax.
- * - ["NodeName"].field.subfield → {{NodeName.field.subfield}}
- * - ["Node Name"].response.status → {{Node Name.response.status}}
- * - === → == (JS strict equality to expr-lang equality)
- * - !== → != (JS strict inequality to expr-lang inequality)
+ * Normalizes JS code references by replacing whitespace with underscores in node names.
+ * - ["Node Name"].field → ["Node_Name"].field
  */
-function normalizeExpressionSyntax(expr: string): string {
+function normalizeJsCodeReferences(code: string): string {
+  if (!code) return code;
+
+  // Pattern: ["NodeName"] - replace whitespace in node name with underscores
+  return code.replace(
+    /\["([^"]+)"\]/g,
+    (_, nodeName) => `["${nodeName.replace(/\s+/g, '_')}"]`,
+  );
+}
+
+/**
+ * Normalizes condition expressions by:
+ * - Removing bracket/quote syntax: ["NodeName"].field → NodeName.field
+ * - Replacing whitespace with underscores in node names
+ * - Converting JS strict equality/inequality to expr-lang operators
+ */
+function normalizeConditionSyntax(expr: string): string {
   if (!expr) return expr;
 
-  // Pattern: ["NodeName"] followed by optional .field.subfield chain
-  // Captures: the node name and the field path
+  // Pattern: ["NodeName"] - convert to plain identifier with underscores
   let normalized = expr.replace(
-    /\["([^"]+)"\]((?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)/g,
-    (_, nodeName, fieldPath) => `{{${nodeName}${fieldPath}}}`,
+    /\["([^"]+)"\]/g,
+    (_, nodeName) => nodeName.replace(/\s+/g, '_'),
   );
 
   // Convert JS strict equality/inequality to expr-lang operators
-  // Must replace === before == to avoid partial matches
   normalized = normalized.replace(/===/g, '==');
   normalized = normalized.replace(/!==/g, '!=');
 
   return normalized;
+}
+
+/**
+ * Normalizes node names by replacing whitespace with underscores.
+ */
+function normalizeNodeName(name: string): string {
+  if (!name) return name;
+  return name.replace(/\s+/g, '_');
 }
 
 interface Collections {
@@ -275,8 +294,8 @@ const executeToolInternal = async (
     case 'createJsNode': {
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const code = args.code as string;
-      const nodeName = args.name as string;
+      const code = normalizeJsCodeReferences(args.code as string);
+      const nodeName = normalizeNodeName(args.name as string);
 
       // Call both inserts before awaiting to ensure optimistic updates happen
       // synchronously before any sync responses can arrive from the server
@@ -301,8 +320,8 @@ const executeToolInternal = async (
     case 'createConditionNode': {
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const condition = normalizeExpressionSyntax(args.condition as string);
-      const nodeName = args.name as string;
+      const condition = normalizeConditionSyntax(args.condition as string);
+      const nodeName = normalizeNodeName(args.name as string);
 
       // Call both inserts before awaiting to ensure optimistic updates happen
       // synchronously before any sync responses can arrive from the server
@@ -328,9 +347,9 @@ const executeToolInternal = async (
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
       const iterations = args.iterations as number;
-      const condition = normalizeExpressionSyntax(args.condition as string);
+      const condition = normalizeConditionSyntax(args.condition as string);
       const errorHandling = args.errorHandling as string;
-      const nodeName = args.name as string;
+      const nodeName = normalizeNodeName(args.name as string);
 
       // Call both inserts before awaiting to ensure optimistic updates happen
       // synchronously before any sync responses can arrive from the server
@@ -357,10 +376,10 @@ const executeToolInternal = async (
     case 'createForEachNode': {
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const path = normalizeExpressionSyntax(args.path as string);
-      const condition = normalizeExpressionSyntax(args.condition as string);
+      const path = normalizeConditionSyntax(args.path as string);
+      const condition = normalizeConditionSyntax(args.condition as string);
       const errorHandling = args.errorHandling as string;
-      const nodeName = args.name as string;
+      const nodeName = normalizeNodeName(args.name as string);
 
       // Call both inserts before awaiting to ensure optimistic updates happen
       // synchronously before any sync responses can arrive from the server
@@ -387,7 +406,7 @@ const executeToolInternal = async (
     case 'createHttpNode': {
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const nodeName = args.name as string;
+      const nodeName = normalizeNodeName(args.name as string);
 
       let httpId: Uint8Array;
       let httpIdStr: string;
@@ -434,9 +453,35 @@ const executeToolInternal = async (
     }
 
     case 'connectSequentialNodes': {
+      const sourceIdStr = args.sourceId as string;
+      const targetIdStr = args.targetId as string;
+
+      // Validation: Only validate if we can find the node (it may have just been created)
+      const sourceNode = flowContext.nodes.find((n) => n.id === sourceIdStr);
+      if (sourceNode) {
+        // Validation: Check source is a sequential node
+        const isSequentialNode = ['ManualStart', 'JavaScript', 'HTTP'].includes(sourceNode.kind);
+        if (!isSequentialNode) {
+          throw new Error(
+            `Node "${sourceNode.name}" is a ${sourceNode.kind} node. ` +
+              `Use connectBranchingNodes instead (with sourceHandle: 'then', 'else', or 'loop').`,
+          );
+        }
+
+        // Validation: Check source doesn't already have outgoing edge
+        const existingEdges = flowContext.edges.filter((e) => e.sourceId === sourceIdStr);
+        if (existingEdges.length > 0) {
+          const existingTarget = flowContext.nodes.find((n) => n.id === existingEdges[0]!.targetId);
+          throw new Error(
+            `Node "${sourceNode.name}" already connects to "${existingTarget?.name ?? existingEdges[0]!.targetId}". ` +
+              `Sequential nodes can only have one output. Use disconnectNodes first to reconnect.`,
+          );
+        }
+      }
+
       const edgeId = Ulid.generate().bytes;
-      const sourceId = parseUlid(args.sourceId as string);
-      const targetId = parseUlid(args.targetId as string);
+      const sourceId = parseUlid(sourceIdStr);
+      const targetId = parseUlid(targetIdStr);
 
       // Await to ensure server persistence before returning
       await edgeCollection.utils.insert({
@@ -450,10 +495,50 @@ const executeToolInternal = async (
     }
 
     case 'connectBranchingNodes': {
+      const sourceIdStr = args.sourceId as string;
+      const targetIdStr = args.targetId as string;
+      const handleStr = args.sourceHandle as string;
+
+      // Validation: Only validate if we can find the node (it may have just been created)
+      const sourceNode = flowContext.nodes.find((n) => n.id === sourceIdStr);
+      if (sourceNode) {
+        // Validation: Check source is a branching node
+        const isBranchingNode = ['Condition', 'For', 'ForEach'].includes(sourceNode.kind);
+        if (!isBranchingNode) {
+          throw new Error(
+            `Node "${sourceNode.name}" is a ${sourceNode.kind} node. ` +
+              `Use connectSequentialNodes instead.`,
+          );
+        }
+
+        // Validation: Check handle is valid for node type
+        const validHandles = sourceNode.kind === 'Condition' ? ['then', 'else'] : ['then', 'loop'];
+        if (!validHandles.includes(handleStr)) {
+          throw new Error(
+            `Invalid sourceHandle "${handleStr}" for ${sourceNode.kind} node. ` +
+              `Valid handles: ${validHandles.join(', ')}.`,
+          );
+        }
+
+        // Validation: Check handle isn't already connected
+        // Note: sourceHandle in flowContext is stored as the numeric enum value (as string)
+        const handleKindValue = String(HANDLE_KIND_MAP[handleStr]);
+        const existingEdge = flowContext.edges.find(
+          (e) => e.sourceId === sourceIdStr && e.sourceHandle === handleKindValue,
+        );
+        if (existingEdge) {
+          const existingTarget = flowContext.nodes.find((n) => n.id === existingEdge.targetId);
+          throw new Error(
+            `The "${handleStr}" handle of "${sourceNode.name}" is already connected to "${existingTarget?.name}". ` +
+              `Use disconnectNodes first to reconnect.`,
+          );
+        }
+      }
+
       const edgeId = Ulid.generate().bytes;
-      const sourceId = parseUlid(args.sourceId as string);
-      const targetId = parseUlid(args.targetId as string);
-      const sourceHandle = HANDLE_KIND_MAP[args.sourceHandle as string] ?? HandleKind.THEN;
+      const sourceId = parseUlid(sourceIdStr);
+      const targetId = parseUlid(targetIdStr);
+      const sourceHandle = HANDLE_KIND_MAP[handleStr] ?? HandleKind.THEN;
 
       // Await to ensure server persistence before returning
       await edgeCollection.utils.insert({
