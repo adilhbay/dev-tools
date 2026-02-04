@@ -21,6 +21,8 @@ export type AgentPhase = 'analyze' | 'plan' | 'execute' | 'verify';
 export interface PhaseContext {
   lastMessage: string;
   hasToolCalls: boolean;
+  /** Number of orphan nodes (nodes not reachable from start) */
+  orphanCount?: number;
 }
 
 export interface PhaseConfig {
@@ -144,7 +146,7 @@ The user will see a button to approve, then you will execute your plan.
   },
 
   execute: {
-    allowedToolNames: [...MUTATION_TOOLS, ...CLIENT_MUTATION_TOOLS],
+    allowedToolNames: [...MUTATION_TOOLS, ...CLIENT_MUTATION_TOOLS, ...EXPLORATION_TOOLS],
     systemPromptAddition: `
 
 ## CURRENT PHASE: EXECUTE
@@ -157,14 +159,24 @@ You are in the **execution phase**. Implement the changes from your plan.
 - Modify nodes (updateNodeCode, updateNodeConfig)
 - Delete nodes and connections
 - Use applyWorkflowPatch for batch operations
+- Use exploration tools to verify what you've created
+
+**CRITICAL - ALWAYS CONNECT NODES:**
+After creating a node, you MUST connect it before moving on:
+1. Create the node → get the nodeId from the result
+2. Immediately connect it using connectSequentialNodes or connectBranchingNodes
+3. Only then proceed to the next operation
+
+DO NOT say "Ready to verify" until ALL nodes are connected. Orphan nodes are failures.
 
 **BEST PRACTICES:**
 - Execute one logical operation at a time
 - Create nodes before connecting them
-- Use applyWorkflowPatch when making multiple related changes
+- ALWAYS connect immediately after creating
+- Use getAllNodes if you need to see current state
 
 **WHEN TO PROCEED:**
-- When all planned changes are complete
+- ONLY when all planned changes are complete AND all nodes are connected
 - Say "Ready to verify" to check your work
 
 If a tool call fails, you may retry or adjust your approach.
@@ -225,6 +237,7 @@ export function getToolsForPhase(phase: AgentPhase, allTools: ToolSchema[]): Too
  * - Plan phase auto-transitions to execute (since it has no tools)
  * - Verify phase can loop back to analyze if issues are found
  * - Verify phase completes (stays in verify) when no tool calls and no loop-back keywords
+ * - Execute phase BLOCKS transition to verify if there are orphan nodes
  */
 export function getNextPhase(currentPhase: AgentPhase, context: PhaseContext): AgentPhase {
   const config = PHASE_CONFIGS[currentPhase];
@@ -243,6 +256,11 @@ export function getNextPhase(currentPhase: AgentPhase, context: PhaseContext): A
   if (!config.canLoopBack) {
     for (const keyword of config.transitionKeywords) {
       if (lowerMessage.includes(keyword.toLowerCase())) {
+        // CRITICAL: Block execute→verify if there are orphan nodes
+        if (currentPhase === 'execute' && (context.orphanCount ?? 0) > 0) {
+          // Stay in execute phase - orphan nodes must be connected first
+          return currentPhase;
+        }
         return config.nextPhase;
       }
     }
