@@ -257,10 +257,19 @@ const deleteEdge = async (
 
 const deleteNode = async (
   shadow: ShadowContext,
-  nodeCollection: Collections['nodeCollection'],
-  edgeCollection: Collections['edgeCollection'],
+  collections: Collections,
   nodeId: string,
 ): Promise<void> => {
+  const {
+    nodeCollection,
+    edgeCollection,
+    jsCollection,
+    conditionCollection,
+    forCollection,
+    forEachCollection,
+    nodeHttpCollection,
+  } = collections;
+  const nodeIdBytes = parseUlid(nodeId);
   const edgesToDelete = shadow.edges.filter(
     (edge) => edge.sourceId === nodeId || edge.targetId === nodeId,
   );
@@ -270,7 +279,14 @@ const deleteNode = async (
   shadow.edges = shadow.edges.filter(
     (edge) => edge.sourceId !== nodeId && edge.targetId !== nodeId,
   );
-  await nodeCollection.utils.delete({ nodeId: parseUlid(nodeId) });
+  await Promise.all([
+    jsCollection.utils.delete({ nodeId: nodeIdBytes }),
+    conditionCollection.utils.delete({ nodeId: nodeIdBytes }),
+    forCollection.utils.delete({ nodeId: nodeIdBytes }),
+    forEachCollection.utils.delete({ nodeId: nodeIdBytes }),
+    nodeHttpCollection.utils.delete({ nodeId: nodeIdBytes }),
+  ]);
+  await nodeCollection.utils.delete({ nodeId: nodeIdBytes });
   shadow.nodes = shadow.nodes.filter((node) => node.id !== nodeId);
 };
 
@@ -663,7 +679,7 @@ const executeToolInternal = async (
             case 'deleteNode': {
               const nodeId = resolveNodeId(op.nodeId, idMap);
               assertNodeExists(shadow, nodeId);
-              await deleteNode(shadow, nodeCollection, edgeCollection, nodeId);
+              await deleteNode(shadow, collections, nodeId);
               appliedOps.push({ index, op, result: { success: true } });
               break;
             }
@@ -1239,8 +1255,9 @@ const executeToolInternal = async (
     }
 
     case 'deleteNode': {
-      const nodeId = parseUlid(args.nodeId as string);
-      nodeCollection.utils.delete({ nodeId });
+      const nodeIdStr = args.nodeId as string;
+      const shadow = cloneShadowContext(flowContext);
+      await deleteNode(shadow, collections, nodeIdStr);
       return { success: true };
     }
 
