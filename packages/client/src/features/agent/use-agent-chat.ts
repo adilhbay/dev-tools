@@ -3,6 +3,13 @@ import { Ulid } from 'id128';
 import OpenAI from 'openai';
 import { useCallback, useRef, useState } from 'react';
 import { NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
+import {
+  type AgentPhase,
+  getInitialPhase,
+  getNextPhase,
+  getToolsForPhase,
+  PHASE_CONFIGS,
+} from './agent-phases';
 import { allToolSchemas } from './tool-schemas';
 import {
   EdgeCollectionSchema,
@@ -411,6 +418,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
     error: null,
   });
 
+  // Phase state for phase-based tool filtering
+  const [currentPhase, setCurrentPhase] = useState<AgentPhase>(getInitialPhase());
+
   const { transport } = routes.root.useRouteContext();
   const flowContext = useFlowContext(flowId);
 
@@ -483,8 +493,15 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       }));
 
       try {
-        const systemPrompt = buildSystemPrompt(currentFlowContext);
-        const tools = [...allToolSchemas, ...clientToolSchemas].map(formatToolAsOpenAI);
+        // Build system prompt with phase-specific additions
+        const baseSystemPrompt = buildSystemPrompt(currentFlowContext);
+        const phaseConfig = PHASE_CONFIGS[currentPhase];
+        const systemPrompt = baseSystemPrompt + phaseConfig.systemPromptAddition;
+
+        // Filter tools by current phase
+        const allTools = [...allToolSchemas, ...clientToolSchemas];
+        const phaseTools = getToolsForPhase(currentPhase, allTools);
+        const tools = phaseTools.map(formatToolAsOpenAI);
 
         const openAIMessages: OpenAIMessage[] = [
           { role: 'system', content: systemPrompt },
@@ -492,12 +509,12 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           { role: 'user', content },
         ];
 
+        // When no tools available (plan phase), omit tools parameter entirely
         let response = await openai.chat.completions.create(
           {
             model: MODEL,
             messages: openAIMessages,
-            tools,
-            tool_choice: 'auto',
+            ...(tools.length > 0 ? { tools, tool_choice: 'auto' as const } : {}),
           },
           { signal: abortController.signal },
         );
@@ -570,13 +587,22 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
             {
               model: MODEL,
               messages: openAIMessages,
-              tools,
-              tool_choice: 'auto',
+              ...(tools.length > 0 ? { tools, tool_choice: 'auto' as const } : {}),
             },
             { signal: abortController.signal },
           );
 
           assistantMessage = response.choices[0]?.message;
+        }
+
+        // Check for phase transition based on final response
+        const phaseContext = {
+          lastMessage: assistantMessage?.content ?? '',
+          hasToolCalls: (assistantMessage?.tool_calls?.length ?? 0) > 0,
+        };
+        const nextPhase = getNextPhase(currentPhase, phaseContext);
+        if (nextPhase !== currentPhase) {
+          setCurrentPhase(nextPhase);
         }
 
         const finalMessage: Message = {
@@ -620,6 +646,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       isLoading: false,
       error: null,
     });
+    // Reset phase when clearing conversation
+    setCurrentPhase(getInitialPhase());
   }, []);
 
   const cancel = useCallback(() => {
@@ -632,6 +660,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
     messages: state.messages,
     isLoading: state.isLoading,
     error: state.error,
+    currentPhase,
     sendMessage,
     clearMessages,
     cancel,

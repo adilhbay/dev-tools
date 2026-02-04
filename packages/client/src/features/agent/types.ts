@@ -1,5 +1,8 @@
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
 
+// Re-export AgentPhase for external consumers
+export type { AgentPhase } from './agent-phases';
+
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
 export interface Message {
@@ -15,6 +18,7 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
+  summary?: string;
 }
 
 export interface ToolResult {
