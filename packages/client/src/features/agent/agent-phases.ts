@@ -31,6 +31,17 @@ export interface PhaseConfig {
   canLoopBack?: AgentPhase;
 }
 
+export interface PendingTransition {
+  fromPhase: AgentPhase;
+  toPhase: AgentPhase;
+}
+
+export interface TransitionAction {
+  label: string;
+  targetPhase: AgentPhase;
+  variant: 'primary' | 'secondary';
+}
+
 // =============================================================================
 // Tool Categories
 // =============================================================================
@@ -84,32 +95,27 @@ export const PHASE_CONFIGS: Record<AgentPhase, PhaseConfig> = {
     allowedToolNames: [...EXPLORATION_TOOLS, ...CLIENT_EXPLORATION_TOOLS],
     systemPromptAddition: `
 
-## CURRENT PHASE: ANALYZE
+## CURRENT PHASE: ANALYZE & PLAN
 
-You are in the **analysis phase**. Your goal is to understand the current workflow state before making any changes.
+Analyze the workflow state, then present your plan. You have access to exploration tools now, and after the user approves your plan, you will have access to these mutation tools:
+- createJsNode, createHttpNode, createConditionNode, createForNode, createForEachNode
+- connectSequentialNodes, connectBranchingNodes, disconnectNodes
+- updateNodeCode, updateNodeConfig, deleteNode
+- applyWorkflowPatch (for batch operations)
 
-**ALLOWED ACTIONS:**
-- Use exploration tools to gather information about nodes, connections, and executions
-- Inspect error details with getNodeExecutions
-- Check node outputs with getNodeOutput
-- View selected nodes with getSelectedNodes
+**YOUR TASK:**
+1. Use exploration tools to understand the current workflow
+2. Present a brief plan (2-5 bullet points)
+3. End with "Ready to execute" - the user will see a button to approve
 
-**RESTRICTIONS:**
-- You CANNOT modify the workflow yet
-- You CANNOT run the flow yet
-
-**WHEN TO PROCEED:**
-- When you have enough information to formulate a plan
-- Say "Ready to plan" to move to the planning phase
-
-For simple, well-defined requests, briefly analyze then proceed quickly.
+**IMPORTANT:** You WILL be able to create and modify nodes after user approval. Do NOT tell the user to create nodes manually.
 `,
     transitionKeywords: ['ready to plan', 'moving to plan', 'i understand the situation', 'let me plan'],
     nextPhase: 'plan',
   },
 
   plan: {
-    allowedToolNames: [], // No tools - pure reasoning
+    allowedToolNames: [], // No tools in plan phase - but we tell the agent what's coming
     systemPromptAddition: `
 
 ## CURRENT PHASE: PLAN
@@ -119,16 +125,19 @@ You are in the **planning phase**. State your plan clearly and concisely.
 **YOUR PLAN SHOULD INCLUDE:**
 1. What changes will you make? (be specific about nodes and connections)
 2. In what order will you execute them?
-3. What could go wrong and how will you handle it?
 
 **FORMAT:**
 Keep the plan brief - 2-5 bullet points maximum.
 
-**WHEN TO PROCEED:**
-- When your plan is complete
-- Say "Ready to execute" to begin making changes
+**TOOLS YOU WILL USE (available after user approval):**
+- createJsNode, createHttpNode, createConditionNode, createForNode, createForEachNode
+- connectSequentialNodes, connectBranchingNodes, disconnectNodes
+- updateNodeCode, updateNodeConfig, deleteNode
+- applyWorkflowPatch (for batch operations)
 
-NOTE: You cannot use any tools in this phase. Focus on reasoning and planning.
+**WHEN DONE PLANNING:**
+You MUST end your response with exactly: "Ready to execute"
+The user will see a button to approve, then you will execute your plan.
 `,
     transitionKeywords: ['ready to execute', 'plan complete', 'let me proceed', 'executing now', 'let\'s execute'],
     nextPhase: 'execute',
@@ -258,4 +267,72 @@ export function getNextPhase(currentPhase: AgentPhase, context: PhaseContext): A
  */
 export function getInitialPhase(): AgentPhase {
   return 'analyze';
+}
+
+/**
+ * Keywords that indicate the agent has a plan ready and is asking to execute.
+ * These cover both explicit "Ready to execute" and natural language variations.
+ */
+const EXECUTE_READY_KEYWORDS = [
+  // Explicit
+  'ready to execute',
+  'plan complete',
+  'let me proceed',
+  'executing now',
+  "let's execute",
+  // Natural language variations
+  'should i proceed',
+  'proceed to creation',
+  'want to review this plan',
+  'shall i execute',
+  'shall i proceed',
+  'want me to execute',
+  'want me to proceed',
+  'ready to create',
+  'ready to implement',
+  'approve this plan',
+];
+
+/**
+ * Detect if the agent's message signals readiness to execute.
+ * Returns pending transition if the agent has presented a plan and is ready.
+ *
+ * We check from BOTH analyze and plan phases since the agent often combines them.
+ */
+export function detectPendingTransition(
+  currentPhase: AgentPhase,
+  context: PhaseContext,
+): PendingTransition | null {
+  // Only prompt for execute transition (from analyze or plan)
+  if (currentPhase !== 'analyze' && currentPhase !== 'plan') {
+    return null;
+  }
+
+  const lowerMessage = context.lastMessage.toLowerCase();
+
+  for (const keyword of EXECUTE_READY_KEYWORDS) {
+    if (lowerMessage.includes(keyword.toLowerCase())) {
+      return { fromPhase: currentPhase, toPhase: 'execute' };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the available transition actions for UI buttons based on pending transition.
+ * Shows execute buttons when agent has presented a plan (from analyze or plan phase).
+ */
+export function getTransitionActions(pending: PendingTransition): TransitionAction[] {
+  const { fromPhase, toPhase } = pending;
+
+  // Both analyze and plan can transition to execute
+  if (fromPhase === 'analyze' || fromPhase === 'plan') {
+    return [
+      { label: 'Execute Plan', targetPhase: toPhase, variant: 'primary' },
+      { label: 'Revise', targetPhase: 'analyze', variant: 'secondary' },
+    ];
+  }
+
+  return [];
 }

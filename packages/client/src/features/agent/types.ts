@@ -1,7 +1,7 @@
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
 
-// Re-export AgentPhase for external consumers
-export type { AgentPhase } from './agent-phases';
+// Re-export AgentPhase and transition types for external consumers
+export type { AgentPhase, PendingTransition, TransitionAction } from './agent-phases';
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 

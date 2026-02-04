@@ -5,6 +5,8 @@ import { useCallback, useRef, useState } from 'react';
 import { NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import {
   type AgentPhase,
+  type PendingTransition,
+  detectPendingTransition,
   getInitialPhase,
   getNextPhase,
   getToolsForPhase,
@@ -420,6 +422,11 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
   // Phase state for phase-based tool filtering
   const [currentPhase, setCurrentPhase] = useState<AgentPhase>(getInitialPhase());
+  const currentPhaseRef = useRef(currentPhase);
+  currentPhaseRef.current = currentPhase;
+
+  // Pending transition state - set when agent signals readiness, cleared on user action
+  const [pendingTransition, setPendingTransition] = useState<PendingTransition | null>(null);
 
   const { transport } = routes.root.useRouteContext();
   const flowContext = useFlowContext(flowId);
@@ -451,6 +458,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       abortControllerRef.current?.abort();
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
+
+      // Clear any pending transition when user sends a new message
+      setPendingTransition(null);
 
       // Use ref to get latest flowContext at execution time
       const currentFlowContext = {
@@ -493,14 +503,15 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       }));
 
       try {
-        // Build system prompt with phase-specific additions
+        // Build system prompt with phase-specific additions (use ref for latest phase)
+        const activePhase = currentPhaseRef.current;
         const baseSystemPrompt = buildSystemPrompt(currentFlowContext);
-        const phaseConfig = PHASE_CONFIGS[currentPhase];
+        const phaseConfig = PHASE_CONFIGS[activePhase];
         const systemPrompt = baseSystemPrompt + phaseConfig.systemPromptAddition;
 
         // Filter tools by current phase
         const allTools = [...allToolSchemas, ...clientToolSchemas];
-        const phaseTools = getToolsForPhase(currentPhase, allTools);
+        const phaseTools = getToolsForPhase(activePhase, allTools);
         const tools = phaseTools.map(formatToolAsOpenAI);
 
         const openAIMessages: OpenAIMessage[] = [
@@ -595,14 +606,22 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           assistantMessage = response.choices[0]?.message;
         }
 
-        // Check for phase transition based on final response
+        // Check for phase transitions
         const phaseContext = {
           lastMessage: assistantMessage?.content ?? '',
           hasToolCalls: (assistantMessage?.tool_calls?.length ?? 0) > 0,
         };
-        const nextPhase = getNextPhase(currentPhase, phaseContext);
-        if (nextPhase !== currentPhase) {
-          setCurrentPhase(nextPhase);
+
+        // Only plan→execute requires user confirmation
+        const detected = detectPendingTransition(currentPhase, phaseContext);
+        if (detected) {
+          setPendingTransition(detected);
+        } else {
+          // Auto-transition for other phases (analyze→plan, execute→verify, verify→analyze)
+          const nextPhase = getNextPhase(currentPhase, phaseContext);
+          if (nextPhase !== currentPhase) {
+            setCurrentPhase(nextPhase);
+          }
         }
 
         const finalMessage: Message = {
@@ -638,6 +657,18 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
     [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, executionCollection, state.messages],
   );
 
+  const confirmTransition = useCallback((targetPhase: AgentPhase) => {
+    // Update phase immediately via ref so sendMessage uses the new phase
+    currentPhaseRef.current = targetPhase;
+    setCurrentPhase(targetPhase);
+    setPendingTransition(null);
+
+    // If transitioning to execute, trigger the agent to continue
+    if (targetPhase === 'execute') {
+      void sendMessage('Proceed with execution.');
+    }
+  }, [sendMessage]);
+
   const clearMessages = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
@@ -646,8 +677,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       isLoading: false,
       error: null,
     });
-    // Reset phase when clearing conversation
+    // Reset phase and clear pending transition when clearing conversation
     setCurrentPhase(getInitialPhase());
+    setPendingTransition(null);
   }, []);
 
   const cancel = useCallback(() => {
@@ -661,6 +693,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
     isLoading: state.isLoading,
     error: state.error,
     currentPhase,
+    pendingTransition,
+    confirmTransition,
     sendMessage,
     clearMessages,
     cancel,

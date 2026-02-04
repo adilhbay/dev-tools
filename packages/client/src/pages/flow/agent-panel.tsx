@@ -4,7 +4,7 @@ import * as XF from '@xyflow/react';
 import Markdown from 'react-markdown';
 import { Button } from '@the-dev-tools/ui/button';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
-import { useAgentChat, type Message } from '~/features/agent';
+import { useAgentChat, getTransitionActions, type Message } from '~/features/agent';
 import { FlowContext } from './context';
 
 export const AgentPanel = () => {
@@ -12,7 +12,7 @@ export const AgentPanel = () => {
   const selectedNodeIds = XF.useStore((s) =>
     s.nodes.filter((n) => n.selected).map((n) => n.id),
   );
-  const { messages, isLoading, error, sendMessage, clearMessages, cancel } = useAgentChat({ flowId, selectedNodeIds });
+  const { messages, isLoading, error, currentPhase, pendingTransition, confirmTransition, sendMessage, clearMessages, cancel } = useAgentChat({ flowId, selectedNodeIds });
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -34,6 +34,9 @@ export const AgentPanel = () => {
       <div className={tw`flex items-center gap-2 border-b border-slate-800 px-3 py-1.5`}>
         <div className={tw`flex flex-1 items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-400`}>
           Agent
+          <span className={tw`rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400`}>
+            {currentPhase}
+          </span>
           {selectedNodeIds.length > 0 && (
             <span className={tw`rounded bg-blue-900/50 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-blue-300`}>
               ● {selectedNodeIds.length} node{selectedNodeIds.length !== 1 ? 's' : ''} selected
@@ -87,6 +90,23 @@ export const AgentPanel = () => {
 
         {error && <div className={tw`mt-2 text-red-400`}>{error}</div>}
       </div>
+
+      {/* Transition Buttons */}
+      {pendingTransition && !isLoading && (
+        <div className={tw`flex items-center gap-2 border-t border-slate-800 bg-slate-900/50 px-4 py-3`}>
+          <span className={tw`mr-2 text-xs text-slate-500`}>Ready to proceed:</span>
+          {getTransitionActions(pendingTransition).map((action) => (
+            <Button
+              key={action.targetPhase}
+              variant={action.variant === 'primary' ? undefined : 'ghost dark'}
+              className={tw`px-3 py-1 text-xs`}
+              onPress={() => confirmTransition(action.targetPhase)}
+            >
+              {action.label}
+            </Button>
+          ))}
+        </div>
+      )}
 
       {/* Input */}
       <form onSubmit={handleSubmit} className={tw`flex items-center gap-2 border-t border-slate-800 px-4 py-2`}>
