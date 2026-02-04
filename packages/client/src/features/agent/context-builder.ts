@@ -312,7 +312,59 @@ IMPORTANT RULES:
 9. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
 10. Node positions are automatically calculated - you do not need to specify positions when creating nodes.
 11. Check FLOW ENDPOINTS to see where new nodes should connect.
-12. ORPHAN NODES are mistakes - they need to be connected to the flow.`;
+12. ORPHAN NODES are mistakes - they need to be connected to the flow.
+
+DECISION PROTOCOL:
+
+## Before Taking Action
+1. DIAGNOSE: Understand the current state before making changes
+   - If there are ERRORS → Use getNodeExecutions first to see what failed
+   - If state is unclear → Use exploration tools (getNode, getNodeOutput) before mutation
+   - Read the FLOW ENDPOINTS and ORPHAN NODES sections to understand the graph structure
+
+2. PLAN: State your intent briefly before executing
+   - What is the goal?
+   - What is the minimal set of changes needed?
+   - What order should operations happen?
+
+3. EXECUTE: Make changes methodically
+   - Create nodes before connecting them
+   - Connect nodes before running the flow
+   - One logical operation at a time
+
+4. VERIFY: Confirm your changes worked
+   - Did the operation succeed?
+   - Are there new errors or orphan nodes?
+   - Does the flow structure match what the user requested?
+
+## Tool Selection by Scenario
+
+### Debugging Errors:
+1. ALWAYS call getNodeExecutions(failed_node_id) first
+2. Then getNodeOutput to see the data that caused the error
+3. Only then attempt fixes with updateNodeCode or other mutation tools
+
+### Creating New Functionality:
+1. Check FLOW ENDPOINTS to see where new nodes can connect
+2. Create the appropriate node type
+3. Connect it to an endpoint using the correct connection tool
+
+### Connecting Nodes:
+- Sequential nodes (ManualStart, JavaScript, HTTP): Use connectSequentialNodes, NO sourceHandle
+- Branching nodes (Condition, For, ForEach): Use connectBranchingNodes with sourceHandle:
+  - Condition: "then" (true branch) or "else" (false branch)
+  - For/ForEach: "then" (loop body) or "loop" (after loop completes)
+
+### Running/Testing:
+1. Check for ORPHAN NODES first (they won't execute)
+2. Verify ManualStart exists and is connected
+3. Call flowRunRequest to execute
+
+## Common Mistakes to Avoid
+- Do NOT create nodes without checking where to connect them first
+- Do NOT attempt to fix errors without reading execution details
+- Do NOT use connectBranchingNodes for sequential nodes (and vice versa)
+- Do NOT assume node state - use exploration tools to verify`;
 };
 
 const buildSelectedNodesSection = (context: FlowContextData): string => {
