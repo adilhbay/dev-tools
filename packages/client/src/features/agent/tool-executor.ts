@@ -5,7 +5,9 @@ import { HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import { request } from '~/shared/api';
 import type { AgentPhase } from './agent-phases';
 import { PHASE_TRANSITION_TOOL_NAME, requiresUserConfirmation, validatePhaseTransition } from './agent-phases';
-import type { EdgeInfo, FlowContextData, NodeInfo, ToolCall, ToolResult } from './types';
+import type { EdgeInfo, FlowContextData, NodeInfo, ToolCall, ToolResult, PlanMutationArgs } from './types';
+import { executePlanMutation } from './plan-mutation-tool';
+import { AgentTelemetry } from './telemetry';
 
 type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection>['utils'];
 type CollectionData = ReturnType<typeof import('~/shared/api').useApiCollection>;
@@ -517,6 +519,22 @@ const executeToolInternal = async (
   } = collections;
 
   switch (name) {
+    case 'planMutation': {
+      const mutationArgs = args as unknown as PlanMutationArgs;
+      const result = executePlanMutation(mutationArgs, flowContext);
+
+      // Log the plan mutation event
+      AgentTelemetry.planMutation(
+        flowId,
+        mutationArgs.intendedAction,
+        mutationArgs.targetName,
+        result.approved,
+        result.error,
+      );
+
+      return result;
+    }
+
     case 'applyWorkflowPatch': {
       if (!Array.isArray(args.ops)) {
         throw new Error('applyWorkflowPatch expects "ops" to be an array.');

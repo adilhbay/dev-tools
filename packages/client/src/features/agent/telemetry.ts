@@ -9,6 +9,7 @@
  */
 
 import type { AgentPhase } from './agent-phases';
+import type { GoalIntent, CompletionResult, ExtractedGoal } from './types';
 
 export type PhaseTransitionTrigger = 'user_confirm' | 'auto' | 'tool_request' | 'reset';
 
@@ -46,11 +47,52 @@ export interface OrphanDetectedEvent {
   timestamp: number;
 }
 
+export interface GoalExtractedEvent {
+  type: 'goal';
+  flowId: string;
+  intent: GoalIntent;
+  confidence: number;
+  targets?: string[];
+  timestamp: number;
+}
+
+export interface CompletionCheckEvent {
+  type: 'completion';
+  flowId: string;
+  complete: boolean;
+  progress: number;
+  reason: string;
+  missingCriteria?: string[];
+  timestamp: number;
+}
+
+export interface LoopCorrectionEvent {
+  type: 'correction';
+  flowId: string;
+  iteration: number;
+  reason: string;
+  timestamp: number;
+}
+
+export interface PlanMutationEvent {
+  type: 'planMutation';
+  flowId: string;
+  action: string;
+  targetName: string;
+  approved: boolean;
+  error?: string;
+  timestamp: number;
+}
+
 export type AgentEvent =
   | PhaseTransitionEvent
   | ToolIterationEvent
   | ToolErrorEvent
-  | OrphanDetectedEvent;
+  | OrphanDetectedEvent
+  | GoalExtractedEvent
+  | CompletionCheckEvent
+  | LoopCorrectionEvent
+  | PlanMutationEvent;
 
 const formatFlowId = (flowId: Uint8Array): string => {
   // Convert first 8 bytes to hex for a readable identifier
@@ -133,5 +175,80 @@ export const AgentTelemetry = {
       timestamp: Date.now(),
     };
     console.warn('[Agent]', event);
+  },
+
+  /**
+   * Log a goal extraction event.
+   */
+  goalExtracted: (flowId: Uint8Array, goal: ExtractedGoal): void => {
+    const event: GoalExtractedEvent = {
+      type: 'goal',
+      flowId: formatFlowId(flowId),
+      intent: goal.intent,
+      confidence: goal.confidence,
+      targets: goal.targetNodes,
+      timestamp: Date.now(),
+    };
+    console.log('[Agent]', event);
+  },
+
+  /**
+   * Log a completion check event.
+   */
+  completionCheck: (flowId: Uint8Array, result: CompletionResult): void => {
+    const event: CompletionCheckEvent = {
+      type: 'completion',
+      flowId: formatFlowId(flowId),
+      complete: result.complete,
+      progress: result.progress,
+      reason: result.reason,
+      missingCriteria: result.missingCriteria,
+      timestamp: Date.now(),
+    };
+    if (result.complete) {
+      console.log('[Agent]', event);
+    } else {
+      console.warn('[Agent]', event);
+    }
+  },
+
+  /**
+   * Log a loop correction event (when agent stopped early).
+   */
+  loopCorrection: (flowId: Uint8Array, iteration: number, reason: string): void => {
+    const event: LoopCorrectionEvent = {
+      type: 'correction',
+      flowId: formatFlowId(flowId),
+      iteration,
+      reason,
+      timestamp: Date.now(),
+    };
+    console.warn('[Agent]', event);
+  },
+
+  /**
+   * Log a plan mutation validation event.
+   */
+  planMutation: (
+    flowId: Uint8Array,
+    action: string,
+    targetName: string,
+    approved: boolean,
+    error?: string,
+  ): void => {
+    const event: PlanMutationEvent = {
+      type: 'planMutation',
+      flowId: formatFlowId(flowId),
+      action,
+      targetName,
+      approved,
+      error,
+      timestamp: Date.now(),
+    };
+    if (approved) {
+      console.log('[Agent]', event);
+    } else {
+      console.warn('[Agent]', event);
+    }
   },
 };

@@ -65,6 +65,7 @@ const CLIENT_EXPLORATION_TOOLS = ['getSelectedNodes'];
 
 /** Mutation tools - modify workflow state */
 const MUTATION_TOOLS = [
+  'planMutation', // Required before creates to prevent duplicates
   'createJsNode',
   'createConditionNode',
   'createForNode',
@@ -151,7 +152,13 @@ Analyze the workflow state, then present your plan. You have access to explorati
 
 You are in the **execution phase**. Implement the changes from your plan.
 
+## GROUNDED MUTATIONS (REQUIRED)
+Before any CREATE operation, you MUST call planMutation first.
+This validates your understanding of current state and prevents duplicate nodes.
+If planMutation is rejected, use getAllNodes to refresh your understanding.
+
 **ALLOWED ACTIONS:**
+- Validate with planMutation before creates
 - Create nodes (createJsNode, createHttpNode, createConditionNode, etc.)
 - Connect nodes (connectSequentialNodes, connectBranchingNodes)
 - Modify nodes (updateNodeCode, updateNodeConfig)
@@ -161,17 +168,16 @@ You are in the **execution phase**. Implement the changes from your plan.
 
 **CRITICAL - ALWAYS CONNECT NODES:**
 After creating a node, you MUST connect it before moving on:
-1. Create the node -> get the nodeId from the result
-2. Immediately connect it using connectSequentialNodes or connectBranchingNodes
-3. Only then proceed to the next operation
+1. Call planMutation to validate your intent
+2. Create the node -> get the nodeId from the result
+3. Immediately connect it using connectSequentialNodes or connectBranchingNodes
+4. Only then proceed to the next operation
 
 DO NOT call requestPhaseTransition until ALL nodes are connected. Orphan nodes are failures.
 
-**BEST PRACTICES:**
-- Execute one logical operation at a time
-- Create nodes before connecting them
-- ALWAYS connect immediately after creating
-- Use getAllNodes if you need to see current state
+**THE LOOP CONTINUES UNTIL YOUR GOAL IS COMPLETE.**
+You cannot exit by not calling tools. The system will verify completion.
+If you stop early, you will be prompted to continue.
 
 **WHEN TO PROCEED:**
 - ONLY when all planned changes are complete AND all nodes are connected

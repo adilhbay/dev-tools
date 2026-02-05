@@ -30,7 +30,7 @@ import { routes } from '~/shared/routes';
 import { buildSystemPrompt, useFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
 import { AgentTelemetry } from './telemetry';
-import { executeToolLoop } from './tool-loop';
+import { executeToolLoop, DEFAULT_MAX_ITERATIONS } from './tool-loop';
 import { executeToolCall, type Collections, type ToolExecutorContext, type PhaseTransitionResult } from './tool-executor';
 import { useAgentPhase } from './use-agent-phase';
 import {
@@ -40,7 +40,10 @@ import {
   type Message,
   type OpenAIMessage,
   type ToolSchema,
+  type CompletionResult,
 } from './types';
+import { extractGoal, buildGoalPrompt } from './completion-oracle';
+import { planMutationToolSchema } from './plan-mutation-tool';
 
 const openai = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
@@ -130,6 +133,8 @@ const applyLayoutToFlow = async (
 };
 
 const clientToolSchemas: ToolSchema[] = [
+  // planMutation is added from plan-mutation-tool.ts
+  planMutationToolSchema,
   {
     name: 'getSelectedNodes',
     description: 'Get details of the nodes currently selected by the user on the canvas.',
@@ -589,11 +594,16 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       }));
 
       try {
-        // Build system prompt with phase-specific additions (use ref for latest phase)
+        // Extract goal from user message for completion-based termination
+        const extractedGoal = extractGoal(content, currentFlowContext);
+        AgentTelemetry.goalExtracted(flowId, extractedGoal);
+
+        // Build system prompt with phase-specific additions and goal context
         const activePhase = currentPhaseRef.current;
         const baseSystemPrompt = buildSystemPrompt(currentFlowContext);
         const phaseConfig = PHASE_CONFIGS[activePhase];
-        const systemPrompt = baseSystemPrompt + phaseConfig.systemPromptAddition;
+        const goalPrompt = buildGoalPrompt(extractedGoal);
+        const systemPrompt = baseSystemPrompt + phaseConfig.systemPromptAddition + goalPrompt;
 
         // Filter tools by current phase
         const allTools = [...allToolSchemas, ...clientToolSchemas];
@@ -647,19 +657,24 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           { signal: abortController.signal },
         );
 
-        // Use the extracted tool loop
+        // Use the extracted tool loop with completion oracle
         const loopResult = await executeToolLoop(
           response,
           openAIMessages,
           tools,
           getToolChoice,
           {
-            maxIterations: 20,
+            maxIterations: DEFAULT_MAX_ITERATIONS,
             openai,
             model: MODEL,
             flowId,
             toolContext,
             signal: abortController.signal,
+            goal: extractedGoal,
+            getLatestFlowContext: () => ({
+              ...flowContextRef.current,
+              selectedNodeIds: selectedNodeIdsRef.current,
+            }),
           },
           {
             onToolCalls: (message) => {
@@ -677,116 +692,30 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
             onLayoutApplied: async () => {
               await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
             },
+            onCorrection: (message) => {
+              setState((prev) => ({
+                ...prev,
+                messages: [...prev.messages, message],
+              }));
+            },
           },
         );
 
-        let { finalMessage } = loopResult;
+        const { finalMessage, completionResult: loopCompletionResult } = loopResult;
 
-        // Check if the tool loop resulted in a blocked phase transition (orphan correction)
-        // The requestPhaseTransition tool would have returned blockedReason
-        // We need to check the last tool result in the message history
-        const lastToolResults = state.messages
-          .filter((m) => m.role === 'tool')
-          .slice(-10);
-        const wasBlockedByOrphans = lastToolResults.some((m) => {
-          try {
-            const result = JSON.parse(m.content) as { blockedReason?: string };
-            return result.blockedReason?.includes('orphan');
-          } catch {
-            return false;
-          }
-        });
+        // Log completion status for debugging
+        if (loopCompletionResult) {
+          console.log('[Agent] Loop completed with status:', {
+            complete: loopCompletionResult.complete,
+            progress: Math.round(loopCompletionResult.progress * 100) + '%',
+            reason: loopCompletionResult.reason,
+          });
+        }
 
-        // If agent was blocked by orphans, inject a correction message and continue
-        if (wasBlockedByOrphans && currentPhaseRef.current === 'execute') {
-          const ctx = flowContextRef.current;
-          const startNode = ctx.nodes.find((n) => n.kind === 'ManualStart');
-          let orphanCount = 0;
-          if (startNode) {
-            const outgoing = new Map<string, string[]>();
-            for (const e of ctx.edges) {
-              const list = outgoing.get(e.sourceId) ?? [];
-              list.push(e.targetId);
-              outgoing.set(e.sourceId, list);
-            }
-            const reachable = new Set<string>();
-            const queue = [startNode.id];
-            while (queue.length > 0) {
-              const nodeId = queue.shift()!;
-              if (reachable.has(nodeId)) continue;
-              reachable.add(nodeId);
-              queue.push(...(outgoing.get(nodeId) ?? []));
-            }
-            orphanCount = ctx.nodes.filter(
-              (n) => n.kind !== 'ManualStart' && !reachable.has(n.id),
-            ).length;
-          }
-
-          if (orphanCount > 0) {
-            // Add correction message with special role
-            const correction = `[CORRECTION] ${orphanCount} orphan node(s) must be connected before transitioning to verify phase. Use connectSequentialNodes or connectBranchingNodes to connect them.`;
-
-            const correctionMessage: Message = {
-              id: generateId(),
-              role: 'correction',
-              content: correction,
-              timestamp: Date.now(),
-            };
-            setState((prev) => ({
-              ...prev,
-              messages: [...prev.messages, correctionMessage],
-            }));
-
-            // Inject as system message for the LLM
-            loopResult.messages.push({
-              role: 'system',
-              content: correction,
-            });
-
-            // Continue the agent loop
-            const continueResponse = await openai.chat.completions.create(
-              {
-                model: MODEL,
-                messages: loopResult.messages,
-                ...(tools.length > 0 ? { tools, tool_choice: 'required' } : {}),
-              },
-              { signal: abortController.signal },
-            );
-
-            const continueResult = await executeToolLoop(
-              continueResponse,
-              loopResult.messages,
-              tools,
-              getToolChoice,
-              {
-                maxIterations: 20,
-                openai,
-                model: MODEL,
-                flowId,
-                toolContext,
-                signal: abortController.signal,
-              },
-              {
-                onToolCalls: (message) => {
-                  setState((prev) => ({
-                    ...prev,
-                    messages: [...prev.messages, message],
-                  }));
-                },
-                onToolResults: (results) => {
-                  setState((prev) => ({
-                    ...prev,
-                    messages: [...prev.messages, ...results],
-                  }));
-                },
-                onLayoutApplied: async () => {
-                  await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
-                },
-              },
-            );
-
-            finalMessage = continueResult.finalMessage;
-          }
+        // Handle incomplete tasks - the completion oracle now handles corrections internally,
+        // but we can show status to the user if the loop hit its limit
+        if (loopResult.hitLimit && loopCompletionResult && !loopCompletionResult.complete) {
+          console.warn('[Agent] Task incomplete after max iterations:', loopCompletionResult.missingCriteria);
         }
 
         // Handle pending phase transition
