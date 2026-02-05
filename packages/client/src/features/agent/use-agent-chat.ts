@@ -5,12 +5,11 @@ import { useCallback, useRef, useState } from 'react';
 import { NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import {
   type AgentPhase,
-  type PendingTransition,
-  detectPendingTransition,
-  getInitialPhase,
-  getNextPhase,
   getToolsForPhase,
   PHASE_CONFIGS,
+  PHASE_TRANSITION_TOOL_NAME,
+  requiresUserConfirmation,
+  validatePhaseTransition,
 } from './agent-phases';
 import { allToolSchemas } from './tool-schemas';
 import {
@@ -30,15 +29,16 @@ import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
 import { buildSystemPrompt, useFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
-import { executeToolCall, type Collections, type ToolExecutorContext } from './tool-executor';
+import { AgentTelemetry } from './telemetry';
+import { executeToolLoop } from './tool-loop';
+import { executeToolCall, type Collections, type ToolExecutorContext, type PhaseTransitionResult } from './tool-executor';
+import { useAgentPhase } from './use-agent-phase';
 import {
   formatToolAsOpenAI,
   type AgentChatState,
   type FlowContextData,
   type Message,
   type OpenAIMessage,
-  type ToolCall,
-  type ToolResult,
   type ToolSchema,
 } from './types';
 
@@ -420,13 +420,22 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
     error: null,
   });
 
-  // Phase state for phase-based tool filtering
-  const [currentPhase, setCurrentPhase] = useState<AgentPhase>(getInitialPhase());
-  const currentPhaseRef = useRef(currentPhase);
-  currentPhaseRef.current = currentPhase;
-
-  // Pending transition state - set when agent signals readiness, cleared on user action
-  const [pendingTransition, setPendingTransition] = useState<PendingTransition | null>(null);
+  // Use the extracted phase management hook
+  const sessionId = Ulid.construct(flowId).toCanonical();
+  const {
+    currentPhase,
+    currentPhaseRef,
+    pendingTransition,
+    transitionTo,
+    requestTransition,
+    confirmTransition: confirmPhaseTransition,
+    cancelTransition,
+    reset: resetPhase,
+  } = useAgentPhase({
+    sessionId,
+    persist: true,
+    flowId,
+  });
 
   const { transport } = routes.root.useRouteContext();
   const flowContext = useFlowContext(flowId);
@@ -452,6 +461,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
   const httpCollection = useApiCollection(HttpCollectionSchema);
   const executionCollection = useApiCollection(NodeExecutionCollectionSchema);
 
+  // Ref for pending phase transition request (set by tool executor callback)
+  const pendingPhaseTransitionRef = useRef<{ targetPhase: AgentPhase; reason: string } | null>(null);
+
   const sendMessage = useCallback(
     async (content: string) => {
       // Cancel any existing request
@@ -460,7 +472,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       abortControllerRef.current = abortController;
 
       // Clear any pending transition when user sends a new message
-      setPendingTransition(null);
+      cancelTransition();
 
       // Use ref to get latest flowContext at execution time
       const currentFlowContext = {
@@ -482,10 +494,84 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         executionCollection,
       };
 
+      // Handler for phase transition tool
+      const handlePhaseTransitionRequest = (
+        targetPhase: AgentPhase,
+        reason: string,
+      ): PhaseTransitionResult => {
+        const currentPhaseValue = currentPhaseRef.current;
+
+        // Compute orphan count for validation
+        const ctx = flowContextRef.current;
+        const startNode = ctx.nodes.find((n) => n.kind === 'ManualStart');
+        let orphanCount = 0;
+        if (startNode) {
+          const outgoing = new Map<string, string[]>();
+          for (const e of ctx.edges) {
+            const list = outgoing.get(e.sourceId) ?? [];
+            list.push(e.targetId);
+            outgoing.set(e.sourceId, list);
+          }
+          const reachable = new Set<string>();
+          const queue = [startNode.id];
+          while (queue.length > 0) {
+            const nodeId = queue.shift()!;
+            if (reachable.has(nodeId)) continue;
+            reachable.add(nodeId);
+            queue.push(...(outgoing.get(nodeId) ?? []));
+          }
+          orphanCount = ctx.nodes.filter(
+            (n) => n.kind !== 'ManualStart' && !reachable.has(n.id),
+          ).length;
+
+          // Log orphan detection if any
+          if (orphanCount > 0) {
+            const orphanIds = ctx.nodes
+              .filter((n) => n.kind !== 'ManualStart' && !reachable.has(n.id))
+              .map((n) => n.id);
+            AgentTelemetry.orphanDetected(flowId, orphanCount, orphanIds);
+          }
+        }
+
+        // Validate the transition
+        const validationResult = validatePhaseTransition(currentPhaseValue, targetPhase, {
+          lastMessage: '',
+          hasToolCalls: false,
+          orphanCount,
+        });
+
+        if (!validationResult.valid) {
+          return {
+            approved: false,
+            blockedReason: validationResult.reason,
+          };
+        }
+
+        // Check if user confirmation is required
+        const needsConfirmation = requiresUserConfirmation(currentPhaseValue, targetPhase);
+
+        if (needsConfirmation) {
+          // Store the request for later handling
+          pendingPhaseTransitionRef.current = { targetPhase, reason };
+          return {
+            approved: false,
+            requiresUserConfirmation: true,
+          };
+        }
+
+        // Auto-approve the transition
+        pendingPhaseTransitionRef.current = { targetPhase, reason };
+        return {
+          approved: true,
+        };
+      };
+
       const toolContext: ToolExecutorContext = {
         collections,
         flowContext: currentFlowContext,
         transport,
+        currentPhase: currentPhaseRef.current,
+        onPhaseTransitionRequest: handlePhaseTransitionRequest,
       };
 
       const userMessage: Message = {
@@ -551,296 +637,192 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           return 'auto';
         };
 
-        // When no tools available (plan phase), omit tools parameter entirely
-        let toolChoice = getToolChoice();
-        let response = await openai.chat.completions.create(
+        // Initial API call
+        const response = await openai.chat.completions.create(
           {
             model: MODEL,
             messages: openAIMessages,
-            ...(tools.length > 0 ? { tools, tool_choice: toolChoice } : {}),
+            ...(tools.length > 0 ? { tools, tool_choice: getToolChoice() } : {}),
           },
           { signal: abortController.signal },
         );
 
-        let assistantMessage = response.choices[0]?.message;
-
-        // Safety limit to prevent infinite loops in execute phase
-        const MAX_TOOL_ITERATIONS = 20;
-        let toolIterations = 0;
-
-        while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0) {
-          toolIterations++;
-          if (toolIterations > MAX_TOOL_ITERATIONS) {
-            console.warn('Agent reached maximum tool iterations, breaking loop');
-            break;
-          }
-          const toolCalls: ToolCall[] = assistantMessage.tool_calls.map((tc) => {
-            const args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-            return {
-              id: tc.id,
-              name: tc.function.name,
-              arguments: args,
-              summary: formatToolCallSummary(tc.function.name, args),
-            };
-          });
-
-          const toolMessage: Message = {
-            id: generateId(),
-            role: 'assistant',
-            content: assistantMessage.content ?? '',
-            toolCalls,
-            timestamp: Date.now(),
-          };
-
-          setState((prev) => ({
-            ...prev,
-            messages: [...prev.messages, toolMessage],
-          }));
-
-          const toolResults = await Promise.all(
-            toolCalls.map((tc) => executeToolCall(tc, flowId, toolContext)),
-          );
-
-          // Apply layout after mutations
-          const hadMutations = toolResults.some((tr: ToolResult) => tr.isMutation && !tr.error);
-          if (hadMutations) {
-            // Query fresh data directly from collections to avoid stale React context
-            await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
-          }
-
-          const toolResultMessages: Message[] = toolResults.map((tr) => ({
-            id: generateId(),
-            role: 'tool' as const,
-            content: tr.error ?? safeStringify(tr.result),
-            toolCallId: tr.toolCallId,
-            timestamp: Date.now(),
-          }));
-
-          setState((prev) => ({
-            ...prev,
-            messages: [...prev.messages, ...toolResultMessages],
-          }));
-
-          openAIMessages.push({
-            role: 'assistant',
-            content: assistantMessage.content,
-            tool_calls: assistantMessage.tool_calls,
-          });
-
-          for (const tr of toolResults) {
-            openAIMessages.push({
-              role: 'tool',
-              tool_call_id: tr.toolCallId,
-              content: tr.error ?? safeStringify(tr.result),
-            });
-          }
-
-          // Re-evaluate tool_choice after each tool execution (orphan state may have changed)
-          toolChoice = getToolChoice();
-          response = await openai.chat.completions.create(
-            {
-              model: MODEL,
-              messages: openAIMessages,
-              ...(tools.length > 0 ? { tools, tool_choice: toolChoice } : {}),
+        // Use the extracted tool loop
+        const loopResult = await executeToolLoop(
+          response,
+          openAIMessages,
+          tools,
+          getToolChoice,
+          {
+            maxIterations: 20,
+            openai,
+            model: MODEL,
+            flowId,
+            toolContext,
+            signal: abortController.signal,
+          },
+          {
+            onToolCalls: (message) => {
+              setState((prev) => ({
+                ...prev,
+                messages: [...prev.messages, message],
+              }));
             },
-            { signal: abortController.signal },
-          );
+            onToolResults: (results) => {
+              setState((prev) => ({
+                ...prev,
+                messages: [...prev.messages, ...results],
+              }));
+            },
+            onLayoutApplied: async () => {
+              await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
+            },
+          },
+        );
 
-          assistantMessage = response.choices[0]?.message;
-        }
+        let { finalMessage } = loopResult;
 
-        // Compute orphan count for phase transition validation
-        const computeOrphanCount = (): number => {
+        // Check if the tool loop resulted in a blocked phase transition (orphan correction)
+        // The requestPhaseTransition tool would have returned blockedReason
+        // We need to check the last tool result in the message history
+        const lastToolResults = state.messages
+          .filter((m) => m.role === 'tool')
+          .slice(-10);
+        const wasBlockedByOrphans = lastToolResults.some((m) => {
+          try {
+            const result = JSON.parse(m.content) as { blockedReason?: string };
+            return result.blockedReason?.includes('orphan');
+          } catch {
+            return false;
+          }
+        });
+
+        // If agent was blocked by orphans, inject a correction message and continue
+        if (wasBlockedByOrphans && currentPhaseRef.current === 'execute') {
           const ctx = flowContextRef.current;
           const startNode = ctx.nodes.find((n) => n.kind === 'ManualStart');
-          if (!startNode) return 0;
-
-          // Build outgoing edge map
-          const outgoing = new Map<string, string[]>();
-          for (const e of ctx.edges) {
-            const list = outgoing.get(e.sourceId) ?? [];
-            list.push(e.targetId);
-            outgoing.set(e.sourceId, list);
+          let orphanCount = 0;
+          if (startNode) {
+            const outgoing = new Map<string, string[]>();
+            for (const e of ctx.edges) {
+              const list = outgoing.get(e.sourceId) ?? [];
+              list.push(e.targetId);
+              outgoing.set(e.sourceId, list);
+            }
+            const reachable = new Set<string>();
+            const queue = [startNode.id];
+            while (queue.length > 0) {
+              const nodeId = queue.shift()!;
+              if (reachable.has(nodeId)) continue;
+              reachable.add(nodeId);
+              queue.push(...(outgoing.get(nodeId) ?? []));
+            }
+            orphanCount = ctx.nodes.filter(
+              (n) => n.kind !== 'ManualStart' && !reachable.has(n.id),
+            ).length;
           }
 
-          // BFS to find reachable nodes
-          const reachable = new Set<string>();
-          const queue = [startNode.id];
-          while (queue.length > 0) {
-            const nodeId = queue.shift()!;
-            if (reachable.has(nodeId)) continue;
-            reachable.add(nodeId);
-            queue.push(...(outgoing.get(nodeId) ?? []));
-          }
+          if (orphanCount > 0) {
+            // Add correction message with special role
+            const correction = `[CORRECTION] ${orphanCount} orphan node(s) must be connected before transitioning to verify phase. Use connectSequentialNodes or connectBranchingNodes to connect them.`;
 
-          // Count orphans (nodes not reachable and not ManualStart)
-          return ctx.nodes.filter((n) => n.kind !== 'ManualStart' && !reachable.has(n.id)).length;
-        };
-
-        // Check for phase transitions
-        const phaseContext = {
-          lastMessage: assistantMessage?.content ?? '',
-          hasToolCalls: (assistantMessage?.tool_calls?.length ?? 0) > 0,
-          orphanCount: computeOrphanCount(),
-        };
-
-        // If agent tried to move to verify but was blocked (orphans exist), auto-continue
-        const triedToVerify = phaseContext.lastMessage.toLowerCase().includes('ready to verify');
-        if (currentPhase === 'execute' && triedToVerify && phaseContext.orphanCount && phaseContext.orphanCount > 0) {
-          // Add the agent's premature response to history
-          const prematureResponse: Message = {
-            id: generateId(),
-            role: 'assistant',
-            content: assistantMessage?.content ?? '',
-            timestamp: Date.now(),
-          };
-          setState((prev) => ({
-            ...prev,
-            messages: [...prev.messages, prematureResponse],
-          }));
-
-          // Inject correction as user message
-          const correction = `⚠️ STOP - You cannot verify yet. There are ${phaseContext.orphanCount} ORPHAN NODE(S) that are NOT CONNECTED to the workflow. You MUST use connectSequentialNodes or connectBranchingNodes to connect them before proceeding. Use getAllNodes to see which nodes are orphans, then connect them.`;
-
-          const correctionMessage: Message = {
-            id: generateId(),
-            role: 'user',
-            content: correction,
-            timestamp: Date.now(),
-          };
-          setState((prev) => ({
-            ...prev,
-            messages: [...prev.messages, correctionMessage],
-          }));
-
-          openAIMessages.push({
-            role: 'assistant',
-            content: assistantMessage?.content,
-          });
-          openAIMessages.push({
-            role: 'user',
-            content: correction,
-          });
-
-          // Continue the agent loop - force tool calls since we know there are orphans
-          toolChoice = 'required';
-          response = await openai.chat.completions.create(
-            {
-              model: MODEL,
-              messages: openAIMessages,
-              ...(tools.length > 0 ? { tools, tool_choice: toolChoice } : {}),
-            },
-            { signal: abortController.signal },
-          );
-
-          assistantMessage = response.choices[0]?.message;
-
-          // Re-enter the tool execution loop if the agent made tool calls
-          while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0) {
-            const toolCalls: ToolCall[] = assistantMessage.tool_calls.map((tc) => {
-              const args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
-              return {
-                id: tc.id,
-                name: tc.function.name,
-                arguments: args,
-                summary: formatToolCallSummary(tc.function.name, args),
-              };
-            });
-
-            const toolMessage: Message = {
+            const correctionMessage: Message = {
               id: generateId(),
-              role: 'assistant',
-              content: assistantMessage.content ?? '',
-              toolCalls,
+              role: 'correction',
+              content: correction,
               timestamp: Date.now(),
             };
-
             setState((prev) => ({
               ...prev,
-              messages: [...prev.messages, toolMessage],
+              messages: [...prev.messages, correctionMessage],
             }));
 
-            const toolResults = await Promise.all(
-              toolCalls.map((tc) => executeToolCall(tc, flowId, toolContext)),
-            );
-
-            const hadMutations = toolResults.some((tr: ToolResult) => tr.isMutation && !tr.error);
-            if (hadMutations) {
-              await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
-            }
-
-            const toolResultMessages: Message[] = toolResults.map((tr) => ({
-              id: generateId(),
-              role: 'tool' as const,
-              content: tr.error ?? safeStringify(tr.result),
-              toolCallId: tr.toolCallId,
-              timestamp: Date.now(),
-            }));
-
-            setState((prev) => ({
-              ...prev,
-              messages: [...prev.messages, ...toolResultMessages],
-            }));
-
-            openAIMessages.push({
-              role: 'assistant',
-              content: assistantMessage.content,
-              tool_calls: assistantMessage.tool_calls,
+            // Inject as system message for the LLM
+            loopResult.messages.push({
+              role: 'system',
+              content: correction,
             });
 
-            for (const tr of toolResults) {
-              openAIMessages.push({
-                role: 'tool',
-                tool_call_id: tr.toolCallId,
-                content: tr.error ?? safeStringify(tr.result),
-              });
-            }
-
-            // Re-evaluate tool_choice after each tool execution
-            toolChoice = getToolChoice();
-            response = await openai.chat.completions.create(
+            // Continue the agent loop
+            const continueResponse = await openai.chat.completions.create(
               {
                 model: MODEL,
-                messages: openAIMessages,
-                ...(tools.length > 0 ? { tools, tool_choice: toolChoice } : {}),
+                messages: loopResult.messages,
+                ...(tools.length > 0 ? { tools, tool_choice: 'required' } : {}),
               },
               { signal: abortController.signal },
             );
 
-            assistantMessage = response.choices[0]?.message;
-          }
+            const continueResult = await executeToolLoop(
+              continueResponse,
+              loopResult.messages,
+              tools,
+              getToolChoice,
+              {
+                maxIterations: 20,
+                openai,
+                model: MODEL,
+                flowId,
+                toolContext,
+                signal: abortController.signal,
+              },
+              {
+                onToolCalls: (message) => {
+                  setState((prev) => ({
+                    ...prev,
+                    messages: [...prev.messages, message],
+                  }));
+                },
+                onToolResults: (results) => {
+                  setState((prev) => ({
+                    ...prev,
+                    messages: [...prev.messages, ...results],
+                  }));
+                },
+                onLayoutApplied: async () => {
+                  await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
+                },
+              },
+            );
 
-          // Recompute phase context after correction loop
-          const newOrphanCount = computeOrphanCount();
-          phaseContext.lastMessage = assistantMessage?.content ?? '';
-          phaseContext.hasToolCalls = (assistantMessage?.tool_calls?.length ?? 0) > 0;
-          phaseContext.orphanCount = newOrphanCount;
+            finalMessage = continueResult.finalMessage;
+          }
         }
 
-        // Only plan→execute requires user confirmation
-        const detected = detectPendingTransition(currentPhase, phaseContext);
-        if (detected) {
-          setPendingTransition(detected);
+        // Handle pending phase transition
+        if (pendingPhaseTransitionRef.current) {
+          const { targetPhase } = pendingPhaseTransitionRef.current;
+          const needsConfirmation = requiresUserConfirmation(currentPhaseRef.current, targetPhase);
+
+          if (needsConfirmation) {
+            requestTransition(currentPhaseRef.current, targetPhase);
+          } else {
+            transitionTo(targetPhase, 'tool_request');
+          }
+
+          pendingPhaseTransitionRef.current = null;
+        }
+
+        const finalMessageContent = finalMessage?.content ?? '';
+        if (finalMessageContent) {
+          const assistantFinalMessage: Message = {
+            id: generateId(),
+            role: 'assistant',
+            content: finalMessageContent,
+            timestamp: Date.now(),
+          };
+
+          setState((prev) => ({
+            ...prev,
+            messages: [...prev.messages, assistantFinalMessage],
+            isLoading: false,
+          }));
         } else {
-          // Auto-transition for other phases (analyze→plan, execute→verify, verify→analyze)
-          const nextPhase = getNextPhase(currentPhase, phaseContext);
-          if (nextPhase !== currentPhase) {
-            setCurrentPhase(nextPhase);
-          }
+          setState((prev) => ({
+            ...prev,
+            isLoading: false,
+          }));
         }
-
-        const finalMessage: Message = {
-          id: generateId(),
-          role: 'assistant',
-          content: assistantMessage?.content ?? '',
-          timestamp: Date.now(),
-        };
-
-        setState((prev) => ({
-          ...prev,
-          messages: [...prev.messages, finalMessage],
-          isLoading: false,
-        }));
       } catch (error) {
         // Ignore abort errors
         if (error instanceof Error && error.name === 'AbortError') {
@@ -859,20 +841,17 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         }
       }
     },
-    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, executionCollection, state.messages],
+    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, executionCollection, state.messages, cancelTransition, requestTransition, transitionTo],
   );
 
   const confirmTransition = useCallback((targetPhase: AgentPhase) => {
-    // Update phase immediately via ref so sendMessage uses the new phase
-    currentPhaseRef.current = targetPhase;
-    setCurrentPhase(targetPhase);
-    setPendingTransition(null);
+    confirmPhaseTransition(targetPhase);
 
     // If transitioning to execute, trigger the agent to continue
     if (targetPhase === 'execute') {
       void sendMessage('Proceed with execution.');
     }
-  }, [sendMessage]);
+  }, [confirmPhaseTransition, sendMessage]);
 
   const clearMessages = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -882,10 +861,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       isLoading: false,
       error: null,
     });
-    // Reset phase and clear pending transition when clearing conversation
-    setCurrentPhase(getInitialPhase());
-    setPendingTransition(null);
-  }, []);
+    // Reset phase
+    resetPhase();
+  }, [resetPhase]);
 
   const cancel = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -900,6 +878,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
     currentPhase,
     pendingTransition,
     confirmTransition,
+    cancelTransition,
     sendMessage,
     clearMessages,
     cancel,
@@ -927,6 +906,14 @@ const messageToOpenAI = (message: Message): OpenAIMessage => {
           arguments: JSON.stringify(tc.arguments),
         },
       })),
+    };
+  }
+
+  // Handle correction messages as system messages for OpenAI
+  if (message.role === 'correction') {
+    return {
+      role: 'system',
+      content: message.content,
     };
   }
 

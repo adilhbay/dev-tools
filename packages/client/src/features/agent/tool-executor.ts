@@ -3,6 +3,8 @@ import { Ulid } from 'id128';
 import { FlowService, HandleKind, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import { HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import { request } from '~/shared/api';
+import type { AgentPhase } from './agent-phases';
+import { PHASE_TRANSITION_TOOL_NAME, requiresUserConfirmation, validatePhaseTransition } from './agent-phases';
 import type { EdgeInfo, FlowContextData, NodeInfo, ToolCall, ToolResult } from './types';
 
 type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection>['utils'];
@@ -69,6 +71,17 @@ interface ToolExecutorContext {
   collections: Collections;
   flowContext: FlowContextData;
   transport: Transport;
+  /** Current agent phase - needed for phase transition validation */
+  currentPhase?: AgentPhase;
+  /** Callback when phase transition is requested */
+  onPhaseTransitionRequest?: (targetPhase: AgentPhase, reason: string) => PhaseTransitionResult;
+}
+
+/** Result of a phase transition request */
+export interface PhaseTransitionResult {
+  approved: boolean;
+  blockedReason?: string;
+  requiresUserConfirmation?: boolean;
 }
 
 const parseUlid = (id: string): Uint8Array => Ulid.fromCanonical(id).bytes;
@@ -1353,6 +1366,76 @@ const executeToolInternal = async (
         transport,
       });
       return { success: true, message: 'Flow execution stopped' };
+    }
+
+    case PHASE_TRANSITION_TOOL_NAME: {
+      const targetPhase = args.targetPhase as AgentPhase;
+      const reason = args.reason as string;
+      const currentPhase = context.currentPhase;
+
+      if (!currentPhase) {
+        return {
+          approved: false,
+          blockedReason: 'Phase tracking not available',
+        };
+      }
+
+      // Compute orphan count for validation
+      const computeOrphanCount = (): number => {
+        const startNode = flowContext.nodes.find((n) => n.kind === 'ManualStart');
+        if (!startNode) return 0;
+
+        const outgoing = new Map<string, string[]>();
+        for (const e of flowContext.edges) {
+          const list = outgoing.get(e.sourceId) ?? [];
+          list.push(e.targetId);
+          outgoing.set(e.sourceId, list);
+        }
+
+        const reachable = new Set<string>();
+        const queue = [startNode.id];
+        while (queue.length > 0) {
+          const nodeId = queue.shift()!;
+          if (reachable.has(nodeId)) continue;
+          reachable.add(nodeId);
+          queue.push(...(outgoing.get(nodeId) ?? []));
+        }
+
+        return flowContext.nodes.filter(
+          (n) => n.kind !== 'ManualStart' && !reachable.has(n.id),
+        ).length;
+      };
+
+      const orphanCount = computeOrphanCount();
+      const validationResult = validatePhaseTransition(currentPhase, targetPhase, {
+        lastMessage: '',
+        hasToolCalls: false,
+        orphanCount,
+      });
+
+      if (!validationResult.valid) {
+        return {
+          approved: false,
+          blockedReason: validationResult.reason,
+          targetPhase,
+          reason,
+        };
+      }
+
+      // Check if user confirmation is required
+      const needsConfirmation = requiresUserConfirmation(currentPhase, targetPhase);
+
+      // Notify the context about the transition request
+      if (context.onPhaseTransitionRequest) {
+        return context.onPhaseTransitionRequest(targetPhase, reason);
+      }
+
+      return {
+        approved: !needsConfirmation,
+        requiresUserConfirmation: needsConfirmation,
+        targetPhase,
+        reason,
+      };
     }
 
     default:

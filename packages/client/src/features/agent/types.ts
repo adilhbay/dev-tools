@@ -3,7 +3,7 @@ import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/reso
 // Re-export AgentPhase and transition types for external consumers
 export type { AgentPhase, PendingTransition, TransitionAction } from './agent-phases';
 
-export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool' | 'correction';
 
 export interface Message {
   id: string;

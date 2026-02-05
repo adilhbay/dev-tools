@@ -1,13 +1,12 @@
 /**
  * Agent Phase System - Implements phase-based tool filtering for the agentic loop.
  *
- * Phases: analyze -> plan -> execute -> verify
+ * Phases: analyze -> execute -> verify
  *
  * This enforces a "diagnose before prescribe" workflow where the agent must:
- * 1. Analyze the current state (exploration tools only)
- * 2. Plan the changes (no tools, pure reasoning)
- * 3. Execute the changes (mutation tools only)
- * 4. Verify the results (exploration + execution tools)
+ * 1. Analyze the current state and plan (exploration tools + phase transition tool)
+ * 2. Execute the changes after user approval (mutation tools)
+ * 3. Verify the results (exploration + execution tools)
  */
 
 import type { ToolSchema } from './types';
@@ -16,7 +15,7 @@ import type { ToolSchema } from './types';
 // Types
 // =============================================================================
 
-export type AgentPhase = 'analyze' | 'plan' | 'execute' | 'verify';
+export type AgentPhase = 'analyze' | 'execute' | 'verify';
 
 export interface PhaseContext {
   lastMessage: string;
@@ -28,7 +27,6 @@ export interface PhaseContext {
 export interface PhaseConfig {
   allowedToolNames: string[];
   systemPromptAddition: string;
-  transitionKeywords: string[];
   nextPhase: AgentPhase;
   canLoopBack?: AgentPhase;
 }
@@ -89,64 +87,64 @@ const CLIENT_MUTATION_TOOLS = ['applyWorkflowPatch', 'updateHttpMethod'];
 const EXECUTION_TOOLS = ['flowRunRequest', 'flowStopRequest'];
 
 // =============================================================================
+// Phase Transition Tool
+// =============================================================================
+
+/** Tool for the agent to explicitly request a phase transition */
+export const PHASE_TRANSITION_TOOL_NAME = 'requestPhaseTransition';
+
+export const phaseTransitionToolSchema: ToolSchema = {
+  name: PHASE_TRANSITION_TOOL_NAME,
+  description:
+    'Request to transition to a different phase. Call this when you have completed your work in the current phase and are ready to move on. Returns whether the transition is approved.',
+  parameters: {
+    type: 'object',
+    properties: {
+      targetPhase: {
+        type: 'string',
+        enum: ['execute', 'verify', 'analyze'],
+        description: 'The phase to transition to',
+      },
+      reason: {
+        type: 'string',
+        description: 'Brief explanation of why you are ready to transition',
+      },
+    },
+    required: ['targetPhase', 'reason'],
+  },
+};
+
+// =============================================================================
 // Phase Configurations
 // =============================================================================
 
 export const PHASE_CONFIGS: Record<AgentPhase, PhaseConfig> = {
   analyze: {
-    allowedToolNames: [...EXPLORATION_TOOLS, ...CLIENT_EXPLORATION_TOOLS],
+    allowedToolNames: [...EXPLORATION_TOOLS, ...CLIENT_EXPLORATION_TOOLS, PHASE_TRANSITION_TOOL_NAME],
     systemPromptAddition: `
 
 ## CURRENT PHASE: ANALYZE & PLAN
 
-Analyze the workflow state, then present your plan. You have access to exploration tools now, and after the user approves your plan, you will have access to these mutation tools:
-- createJsNode, createHttpNode, createConditionNode, createForNode, createForEachNode
-- connectSequentialNodes, connectBranchingNodes, disconnectNodes
-- updateNodeCode, updateNodeConfig, deleteNode
-- applyWorkflowPatch (for batch operations)
+Analyze the workflow state, then present your plan. You have access to exploration tools now.
 
 **YOUR TASK:**
 1. Use exploration tools to understand the current workflow
 2. Present a brief plan (2-5 bullet points)
-3. End with "Ready to execute" - the user will see a button to approve
+3. Call the requestPhaseTransition tool with targetPhase="execute" when ready
 
 **IMPORTANT:** You WILL be able to create and modify nodes after user approval. Do NOT tell the user to create nodes manually.
-`,
-    transitionKeywords: ['ready to plan', 'moving to plan', 'i understand the situation', 'let me plan'],
-    nextPhase: 'plan',
-  },
 
-  plan: {
-    allowedToolNames: [], // No tools in plan phase - but we tell the agent what's coming
-    systemPromptAddition: `
-
-## CURRENT PHASE: PLAN
-
-You are in the **planning phase**. State your plan clearly and concisely.
-
-**YOUR PLAN SHOULD INCLUDE:**
-1. What changes will you make? (be specific about nodes and connections)
-2. In what order will you execute them?
-
-**FORMAT:**
-Keep the plan brief - 2-5 bullet points maximum.
-
-**TOOLS YOU WILL USE (available after user approval):**
+**AVAILABLE MUTATION TOOLS (after approval):**
 - createJsNode, createHttpNode, createConditionNode, createForNode, createForEachNode
 - connectSequentialNodes, connectBranchingNodes, disconnectNodes
 - updateNodeCode, updateNodeConfig, deleteNode
 - applyWorkflowPatch (for batch operations)
-
-**WHEN DONE PLANNING:**
-You MUST end your response with exactly: "Ready to execute"
-The user will see a button to approve, then you will execute your plan.
 `,
-    transitionKeywords: ['ready to execute', 'plan complete', 'let me proceed', 'executing now', 'let\'s execute'],
     nextPhase: 'execute',
   },
 
   execute: {
-    allowedToolNames: [...MUTATION_TOOLS, ...CLIENT_MUTATION_TOOLS, ...EXPLORATION_TOOLS],
+    allowedToolNames: [...MUTATION_TOOLS, ...CLIENT_MUTATION_TOOLS, ...EXPLORATION_TOOLS, PHASE_TRANSITION_TOOL_NAME],
     systemPromptAddition: `
 
 ## CURRENT PHASE: EXECUTE
@@ -163,11 +161,11 @@ You are in the **execution phase**. Implement the changes from your plan.
 
 **CRITICAL - ALWAYS CONNECT NODES:**
 After creating a node, you MUST connect it before moving on:
-1. Create the node → get the nodeId from the result
+1. Create the node -> get the nodeId from the result
 2. Immediately connect it using connectSequentialNodes or connectBranchingNodes
 3. Only then proceed to the next operation
 
-DO NOT say "Ready to verify" until ALL nodes are connected. Orphan nodes are failures.
+DO NOT call requestPhaseTransition until ALL nodes are connected. Orphan nodes are failures.
 
 **BEST PRACTICES:**
 - Execute one logical operation at a time
@@ -177,16 +175,15 @@ DO NOT say "Ready to verify" until ALL nodes are connected. Orphan nodes are fai
 
 **WHEN TO PROCEED:**
 - ONLY when all planned changes are complete AND all nodes are connected
-- Say "Ready to verify" to check your work
+- Call requestPhaseTransition with targetPhase="verify" to check your work
 
 If a tool call fails, you may retry or adjust your approach.
 `,
-    transitionKeywords: ['ready to verify', 'changes complete', 'done executing', 'let me verify', 'verification time'],
     nextPhase: 'verify',
   },
 
   verify: {
-    allowedToolNames: ['getNode', 'getNodeExecutions', 'getNodeOutput', ...EXECUTION_TOOLS],
+    allowedToolNames: ['getNode', 'getNodeExecutions', 'getNodeOutput', ...EXECUTION_TOOLS, PHASE_TRANSITION_TOOL_NAME],
     systemPromptAddition: `
 
 ## CURRENT PHASE: VERIFY
@@ -206,11 +203,10 @@ You are in the **verification phase**. Confirm that your changes worked correctl
 
 **OUTCOMES:**
 - If everything looks good: Summarize what was accomplished
-- If there are issues: Say "Need to analyze" to return to analysis phase
+- If there are issues: Call requestPhaseTransition with targetPhase="analyze" to return to analysis
 
 When verification is complete, provide a final summary to the user.
 `,
-    transitionKeywords: ['need to analyze', 'something is wrong', 'let me investigate', 'there\'s an issue'],
     nextPhase: 'analyze', // Loops back for new requests or issues
     canLoopBack: 'analyze',
   },
@@ -222,62 +218,21 @@ When verification is complete, provide a final summary to the user.
 
 /**
  * Filter tools to only those allowed in the current phase.
+ * Includes the phase transition tool schema if it's allowed in the phase.
  */
 export function getToolsForPhase(phase: AgentPhase, allTools: ToolSchema[]): ToolSchema[] {
   const config = PHASE_CONFIGS[phase];
   const allowedNames = new Set(config.allowedToolNames);
-  return allTools.filter((tool) => allowedNames.has(tool.name));
-}
 
-/**
- * Determine the next phase based on the current phase and LLM response context.
- *
- * Transition rules:
- * - Check for explicit transition keywords in the LLM's response
- * - Plan phase auto-transitions to execute (since it has no tools)
- * - Verify phase can loop back to analyze if issues are found
- * - Verify phase completes (stays in verify) when no tool calls and no loop-back keywords
- * - Execute phase BLOCKS transition to verify if there are orphan nodes
- */
-export function getNextPhase(currentPhase: AgentPhase, context: PhaseContext): AgentPhase {
-  const config = PHASE_CONFIGS[currentPhase];
-  const lowerMessage = context.lastMessage.toLowerCase();
+  // Filter provided tools
+  const filtered = allTools.filter((tool) => allowedNames.has(tool.name));
 
-  // Check for loop-back condition first (verify -> analyze)
-  if (config.canLoopBack) {
-    for (const keyword of config.transitionKeywords) {
-      if (lowerMessage.includes(keyword.toLowerCase())) {
-        return config.canLoopBack;
-      }
-    }
+  // Add the phase transition tool if allowed
+  if (allowedNames.has(PHASE_TRANSITION_TOOL_NAME)) {
+    filtered.push(phaseTransitionToolSchema);
   }
 
-  // Check for forward transition keywords
-  if (!config.canLoopBack) {
-    for (const keyword of config.transitionKeywords) {
-      if (lowerMessage.includes(keyword.toLowerCase())) {
-        // CRITICAL: Block execute→verify if there are orphan nodes
-        if (currentPhase === 'execute' && (context.orphanCount ?? 0) > 0) {
-          // Stay in execute phase - orphan nodes must be connected first
-          return currentPhase;
-        }
-        return config.nextPhase;
-      }
-    }
-  }
-
-  // Auto-transition from plan phase (no tools available, so after LLM responds it should proceed)
-  if (currentPhase === 'plan' && !context.hasToolCalls) {
-    // Check if the response indicates readiness to execute
-    const executeKeywords = ['ready to execute', 'plan complete', 'let me proceed', 'executing now', 'let\'s execute'];
-    for (const keyword of executeKeywords) {
-      if (lowerMessage.includes(keyword.toLowerCase())) {
-        return 'execute';
-      }
-    }
-  }
-
-  return currentPhase;
+  return filtered;
 }
 
 /**
@@ -288,64 +243,50 @@ export function getInitialPhase(): AgentPhase {
 }
 
 /**
- * Keywords that indicate the agent has a plan ready and is asking to execute.
- * These cover both explicit "Ready to execute" and natural language variations.
+ * Validate a phase transition request.
+ * Returns null if valid, or an error message if blocked.
  */
-const EXECUTE_READY_KEYWORDS = [
-  // Explicit
-  'ready to execute',
-  'plan complete',
-  'let me proceed',
-  'executing now',
-  "let's execute",
-  // Natural language variations
-  'should i proceed',
-  'proceed to creation',
-  'want to review this plan',
-  'shall i execute',
-  'shall i proceed',
-  'want me to execute',
-  'want me to proceed',
-  'ready to create',
-  'ready to implement',
-  'approve this plan',
-];
-
-/**
- * Detect if the agent's message signals readiness to execute.
- * Returns pending transition if the agent has presented a plan and is ready.
- *
- * We check from BOTH analyze and plan phases since the agent often combines them.
- */
-export function detectPendingTransition(
+export function validatePhaseTransition(
   currentPhase: AgentPhase,
+  targetPhase: AgentPhase,
   context: PhaseContext,
-): PendingTransition | null {
-  // Only prompt for execute transition (from analyze or plan)
-  if (currentPhase !== 'analyze' && currentPhase !== 'plan') {
-    return null;
-  }
-
-  const lowerMessage = context.lastMessage.toLowerCase();
-
-  for (const keyword of EXECUTE_READY_KEYWORDS) {
-    if (lowerMessage.includes(keyword.toLowerCase())) {
-      return { fromPhase: currentPhase, toPhase: 'execute' };
+): { valid: true } | { valid: false; reason: string } {
+  // Block execute->verify if there are orphan nodes
+  if (currentPhase === 'execute' && targetPhase === 'verify') {
+    if ((context.orphanCount ?? 0) > 0) {
+      return {
+        valid: false,
+        reason: `Cannot transition to verify: ${context.orphanCount} orphan node(s) must be connected first`,
+      };
     }
   }
 
-  return null;
+  // Block analyze->execute transition (requires user confirmation)
+  // This is handled by setting pendingTransition, not blocking
+  // So we return valid=true but the caller should set pending state
+
+  return { valid: true };
+}
+
+/**
+ * Check if a transition requires user confirmation.
+ */
+export function requiresUserConfirmation(
+  currentPhase: AgentPhase,
+  targetPhase: AgentPhase,
+): boolean {
+  // analyze->execute requires user confirmation
+  return currentPhase === 'analyze' && targetPhase === 'execute';
 }
 
 /**
  * Get the available transition actions for UI buttons based on pending transition.
- * Shows execute buttons when agent has presented a plan (from analyze or plan phase).
  */
 export function getTransitionActions(pending: PendingTransition): TransitionAction[] {
   const { fromPhase, toPhase } = pending;
 
-  // Both analyze and plan can transition to execute
-  if (fromPhase === 'analyze' || fromPhase === 'plan') {
+  // analyze->execute shows execute and revise buttons
+  if (fromPhase === 'analyze' && toPhase === 'execute') {
     return [
       { label: 'Execute Plan', targetPhase: toPhase, variant: 'primary' },
       { label: 'Revise', targetPhase: 'analyze', variant: 'secondary' },

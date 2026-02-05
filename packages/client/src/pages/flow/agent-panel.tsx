@@ -12,7 +12,7 @@ export const AgentPanel = () => {
   const selectedNodeIds = XF.useStore((s) =>
     s.nodes.filter((n) => n.selected).map((n) => n.id),
   );
-  const { messages, isLoading, error, currentPhase, pendingTransition, confirmTransition, sendMessage, clearMessages, cancel } = useAgentChat({ flowId, selectedNodeIds });
+  const { messages, isLoading, error, currentPhase, pendingTransition, confirmTransition, cancelTransition, sendMessage, clearMessages, cancel } = useAgentChat({ flowId, selectedNodeIds });
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -105,6 +105,13 @@ export const AgentPanel = () => {
               {action.label}
             </Button>
           ))}
+          <Button
+            variant='ghost dark'
+            className={tw`px-3 py-1 text-xs text-slate-500`}
+            onPress={cancelTransition}
+          >
+            Cancel
+          </Button>
         </div>
       )}
 
@@ -136,6 +143,16 @@ const TerminalMessage = ({ message }: { message: Message }) => {
 
   if (message.role === 'tool') {
     return <ToolResultMessage content={message.content} />;
+  }
+
+  // Correction messages - displayed with amber styling
+  if (message.role === 'correction') {
+    return (
+      <div className={tw`flex gap-2 border-l-2 border-amber-500 pl-2`}>
+        <span className={tw`text-amber-400`}>!</span>
+        <span className={tw`text-amber-300`}>{message.content}</span>
+      </div>
+    );
   }
 
   if (message.role === 'assistant' && message.toolCalls) {
