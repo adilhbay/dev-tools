@@ -134,7 +134,7 @@ export const NodeName = Schema.String.pipe(
   Schema.maxLength(100),
   Schema.annotations({
     description: 'Display name for the node',
-    examples: ['Transform Data', 'Fetch User', 'Check Status'],
+    examples: ['Transform_Data', 'Fetch_User', 'Check_Status'],
   }),
 );
 
@@ -152,12 +152,11 @@ export const JsCode = Schema.String.pipe(
 export const ConditionExpression = Schema.String.pipe(
   Schema.annotations({
     description:
-      'Boolean expression using expr-lang syntax. NEVER use {{}} template syntax in conditions. Access node outputs via ["NodeName"]. When a JS node returns an array/primitive directly, it is wrapped as .result. Use len() for array length. ForEach nodes expose .item (current value) and .key (index).',
+      'Boolean expression using expr-lang syntax. NEVER use {{}} template syntax. Access node outputs via NodeName.field (underscores replace spaces). When a JS node returns an array/primitive directly, it is wrapped as .result. Use len() for array length. ForEach nodes expose .item (current value) and .key (index). For For/ForEach nodes, this is the REQUIRED break condition - the loop exits early when this evaluates to true.',
     examples: [
-      '["GetUser"].response.status == 200',
-      'len(["Transform"].result) > 5',
-      '["ForEach Loop"].key >= 3',
-      '["JS Node"].count > 0',
+      'Get_User.response.status == 200',
+      'ForEach_Loop.key >= 3',
+      'Counter.count >= 10',
     ],
   }),
 );

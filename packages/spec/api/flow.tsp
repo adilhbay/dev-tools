@@ -165,25 +165,25 @@ enum ErrorHandling {
 
 @AITools.explorationTool
 @AITools.mutationTool(
-  #{ operation: AITools.CrudOperation.Insert, title: "Create For Loop Node", name: "CreateForNode", parent: "Node", exclude: #["kind"], description: "Create a for-loop node that iterates a fixed number of times." }
+  #{ operation: AITools.CrudOperation.Insert, title: "Create For Loop Node", name: "CreateForNode", parent: "Node", exclude: #["kind"], description: "Create a for-loop node. REQUIRED: iterations (positive integer) AND condition (break condition that exits the loop early when true). The loop runs up to 'iterations' times but stops early when the break condition evaluates to true." }
 )
 @TanStackDB.collection
 model NodeFor {
   @primaryKey nodeId: Id;
-  @doc("Number of iterations to perform") iterations: int32;
-  condition: string;
+  @doc("Number of iterations to perform (must be > 0)") iterations: int32;
+  @doc("REQUIRED break condition - loop exits early when this expression is true. Use expr-lang syntax.") condition: string;
   errorHandling: ErrorHandling;
 }
 
 @AITools.explorationTool
 @AITools.mutationTool(
-  #{ operation: AITools.CrudOperation.Insert, title: "Create ForEach Loop Node", name: "CreateForEachNode", parent: "Node", exclude: #["kind"], description: "Create a forEach node that iterates over an array or object." }
+  #{ operation: AITools.CrudOperation.Insert, title: "Create ForEach Loop Node", name: "CreateForEachNode", parent: "Node", exclude: #["kind"], description: "Create a forEach node that iterates over an array or object. REQUIRED: path (expression for the collection) AND condition (break condition that exits the loop early when true)." }
 )
 @TanStackDB.collection
 model NodeForEach {
   @primaryKey nodeId: Id;
   @doc("Expression for the array/object to iterate. Use expr-lang syntax: [\"JS Node\"].items or [\"HTTP\"].response.body") path: string;
-  condition: string;
+  @doc("REQUIRED break condition - loop exits early when this expression is true. Use expr-lang syntax.") condition: string;
   errorHandling: ErrorHandling;
 }
 

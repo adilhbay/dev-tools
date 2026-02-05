@@ -360,10 +360,28 @@ const executeToolInternal = async (
     }
 
     case 'createForNode': {
+      // Validate iterations is a positive integer
+      const iterations = args.iterations as number | undefined;
+      if (iterations === undefined || iterations === null) {
+        throw new Error('iterations is required for For nodes. Specify the number of times to iterate.');
+      }
+      if (!Number.isInteger(iterations) || iterations <= 0) {
+        throw new Error(`iterations must be a positive integer, got: ${iterations}`);
+      }
+
+      // Validate break condition is provided
+      const rawCondition = args.condition as string | undefined;
+      if (!rawCondition || rawCondition.trim() === '') {
+        throw new Error(
+          'condition (break condition) is required for For nodes. ' +
+            'Provide an expression that evaluates to true to exit the loop early. ' +
+            'Example: Counter.count >= 10',
+        );
+      }
+
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const iterations = args.iterations as number;
-      const condition = normalizeConditionSyntax(args.condition as string);
+      const condition = normalizeConditionSyntax(rawCondition);
       const errorHandling = args.errorHandling as string;
       const nodeName = normalizeNodeName(args.name as string);
 
@@ -390,10 +408,30 @@ const executeToolInternal = async (
     }
 
     case 'createForEachNode': {
+      // Validate path is provided
+      const rawPath = args.path as string | undefined;
+      if (!rawPath || rawPath.trim() === '') {
+        throw new Error(
+          'path is required for ForEach nodes. ' +
+            'Provide an expression for the array/object to iterate. ' +
+            'Example: HTTP_Request.response.body.items',
+        );
+      }
+
+      // Validate break condition is provided
+      const rawCondition = args.condition as string | undefined;
+      if (!rawCondition || rawCondition.trim() === '') {
+        throw new Error(
+          'condition (break condition) is required for ForEach nodes. ' +
+            'Provide an expression that evaluates to true to exit the loop early. ' +
+            'Example: ForEach_Loop.key >= 5',
+        );
+      }
+
       const nodeId = Ulid.generate().bytes;
       const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const path = normalizeConditionSyntax(args.path as string);
-      const condition = normalizeConditionSyntax(args.condition as string);
+      const path = normalizeConditionSyntax(rawPath);
+      const condition = normalizeConditionSyntax(rawCondition);
       const errorHandling = args.errorHandling as string;
       const nodeName = normalizeNodeName(args.name as string);
 
