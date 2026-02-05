@@ -613,9 +613,19 @@ const executeToolInternal = async (
     }
 
     case 'deleteNode': {
-      const nodeId = parseUlid(args.nodeId as string);
+      const nodeIdStr = args.nodeId as string;
+      const nodeId = parseUlid(nodeIdStr);
+
+      // Delete all edges connected to this node (both incoming and outgoing)
+      const connectedEdges = flowContext.edges.filter(
+        (e) => e.sourceId === nodeIdStr || e.targetId === nodeIdStr,
+      );
+      for (const edge of connectedEdges) {
+        edgeCollection.utils.delete({ edgeId: parseUlid(edge.id) });
+      }
+
       nodeCollection.utils.delete({ nodeId });
-      return { success: true };
+      return { success: true, deletedEdges: connectedEdges.length };
     }
 
     case 'updateNodeConfig': {
