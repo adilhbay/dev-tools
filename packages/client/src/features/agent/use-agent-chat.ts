@@ -6,6 +6,7 @@ import { FlowItemState, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flo
 import { allToolSchemas } from './tool-schemas';
 import {
   EdgeCollectionSchema,
+  FlowCollectionSchema,
   FlowVariableCollectionSchema,
   NodeCollectionSchema,
   NodeConditionCollectionSchema,
@@ -25,7 +26,6 @@ import { executeToolCall, type Collections, type ToolExecutorContext } from './t
 import {
   formatToolAsOpenAI,
   type AgentChatState,
-  type ExecutionSummary,
   type FlowContextData,
   type Message,
   type OpenAIMessage,
@@ -136,6 +136,16 @@ const clientToolSchemas: ToolSchema[] = [
     },
   },
   {
+    name: 'getFlowExecutionSummary',
+    description: 'Get a summary of the latest flow execution showing which nodes ran and which were never reached.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'updateHttpMethod',
     description: 'Update the HTTP method of an existing HTTP request.',
     parameters: {
@@ -192,6 +202,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
   const nodeHttpCollection = useApiCollection(NodeHttpCollectionSchema);
   const httpCollection = useApiCollection(HttpCollectionSchema);
   const executionCollection = useApiCollection(NodeExecutionCollectionSchema);
+  const flowCollection = useApiCollection(FlowCollectionSchema);
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -220,7 +231,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         executionCollection,
       };
 
-      const waitForFlowCompletion = async (): Promise<ExecutionSummary> => {
+      const waitForFlowCompletion = async (): Promise<void> => {
         const POLL_INTERVAL = 500;
         const MAX_WAIT = 30_000;
         const INITIAL_DELAY = 500;
@@ -233,45 +244,13 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           await new Promise((r) => setTimeout(r, POLL_INTERVAL));
           elapsed += POLL_INTERVAL;
 
-          const freshNodes = await queryCollection((_) =>
-            _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
+          const [flow] = await queryCollection((_) =>
+            _.from({ item: flowCollection })
+              .where((_) => eq(_.item.flowId, flowId))
+              .findOne(),
           );
-
-          const hasRunning = freshNodes.some((n) => n.state === FlowItemState.RUNNING);
-          const hasTerminal = freshNodes.some(
-            (n) => n.state === FlowItemState.SUCCESS || n.state === FlowItemState.FAILURE,
-          );
-
-          if (!hasRunning && hasTerminal) break;
+          if (flow && !flow.running) break;
         }
-
-        const freshNodes = await queryCollection((_) =>
-          _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
-        );
-
-        const executedNodes = freshNodes
-          .filter((n) => n.state === FlowItemState.SUCCESS || n.state === FlowItemState.FAILURE)
-          .map((n) => ({
-            id: Ulid.construct(n.nodeId).toCanonical(),
-            name: n.name,
-            state: FLOW_ITEM_STATE_NAMES[n.state] ?? 'Unknown',
-          }));
-
-        const neverReachedNodes = freshNodes
-          .filter(
-            (n) =>
-              n.kind !== NodeKind.MANUAL_START &&
-              n.state !== FlowItemState.SUCCESS &&
-              n.state !== FlowItemState.FAILURE &&
-              n.state !== FlowItemState.RUNNING,
-          )
-          .map((n) => ({
-            id: Ulid.construct(n.nodeId).toCanonical(),
-            name: n.name,
-            kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
-          }));
-
-        return { executedNodes, neverReachedNodes };
       };
 
       const toolContext: ToolExecutorContext = {
@@ -478,7 +457,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         }
       }
     },
-    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, executionCollection, state.messages],
+    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, executionCollection, flowCollection, state.messages],
   );
 
   const clearMessages = useCallback(() => {

@@ -1,9 +1,11 @@
 import type { Transport } from '@connectrpc/connect';
+import { eq } from '@tanstack/react-db';
 import { Ulid } from 'id128';
-import { FlowService, HandleKind, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
+import { FlowItemState, FlowService, HandleKind, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import { HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import { request } from '~/shared/api';
-import type { ExecutionSummary, FlowContextData, ToolCall, ToolResult } from './types';
+import { queryCollection } from '~/shared/lib';
+import type { FlowContextData, ToolCall, ToolResult } from './types';
 
 type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection>['utils'];
 type CollectionData = ReturnType<typeof import('~/shared/api').useApiCollection>;
@@ -69,7 +71,7 @@ interface ToolExecutorContext {
   collections: Collections;
   flowContext: FlowContextData;
   transport: Transport;
-  waitForFlowCompletion: () => Promise<ExecutionSummary>;
+  waitForFlowCompletion: () => Promise<void>;
 }
 
 const parseUlid = (id: string): Uint8Array => Ulid.fromCanonical(id).bytes;
@@ -88,6 +90,24 @@ const HTTP_METHOD_MAP: Record<string, HttpMethod> = {
   DELETE: HttpMethod.DELETE,
   HEAD: HttpMethod.HEAD,
   OPTIONS: HttpMethod.OPTIONS,
+};
+
+const NODE_KIND_NAMES: Record<number, string> = {
+  [NodeKind.UNSPECIFIED]: 'Unknown',
+  [NodeKind.MANUAL_START]: 'ManualStart',
+  [NodeKind.HTTP]: 'HTTP',
+  [NodeKind.CONDITION]: 'Condition',
+  [NodeKind.FOR]: 'For',
+  [NodeKind.FOR_EACH]: 'ForEach',
+  [NodeKind.JS]: 'JavaScript',
+};
+
+const FLOW_ITEM_STATE_NAMES: Record<number, string> = {
+  [FlowItemState.UNSPECIFIED]: 'Idle',
+  [FlowItemState.RUNNING]: 'Running',
+  [FlowItemState.SUCCESS]: 'Success',
+  [FlowItemState.FAILURE]: 'Failure',
+  [FlowItemState.CANCELED]: 'Canceled',
 };
 
 const MUTATION_TOOLS = new Set([
@@ -712,16 +732,11 @@ const executeToolInternal = async (
         transport,
       });
 
-      const summary = await context.waitForFlowCompletion();
+      await context.waitForFlowCompletion();
 
       return {
         success: true,
-        message: 'Flow execution completed',
-        executedNodes: summary.executedNodes,
-        neverReachedNodes: summary.neverReachedNodes,
-        warning: summary.neverReachedNodes.length > 0
-          ? `${summary.neverReachedNodes.length} node(s) were never reached during execution. This likely indicates a wiring problem.`
-          : undefined,
+        message: 'Flow execution completed. Use getFlowExecutionSummary to inspect results.',
       };
     }
 
@@ -732,6 +747,69 @@ const executeToolInternal = async (
         transport,
       });
       return { success: true, message: 'Flow execution stopped' };
+    }
+
+    case 'getFlowExecutionSummary': {
+      // Query fresh nodes from the collection
+      const freshNodes = await queryCollection((_) =>
+        _.from({ node: collections.nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
+      );
+
+      // Build a set of node IDs belonging to this flow
+      const nodeIdSet = new Set(
+        freshNodes.filter((n) => n.nodeId != null).map((n) => Ulid.construct(n.nodeId).toCanonical()),
+      );
+
+      // Query all executions and filter to this flow's nodes
+      const allExecs = await queryCollection((_) =>
+        _.from({ exec: collections.executionCollection }),
+      );
+      const flowExecs = allExecs.filter(
+        (e) => e.nodeId != null && nodeIdSet.has(Ulid.construct(e.nodeId).toCanonical()),
+      );
+      const executedNodeIds = new Set(flowExecs.map((e) => Ulid.construct(e.nodeId).toCanonical()));
+
+      // Build executed nodes list with state from execution records
+      const executedNodes = freshNodes
+        .filter((n) => n.nodeId != null && executedNodeIds.has(Ulid.construct(n.nodeId).toCanonical()))
+        .map((n) => {
+          const nodeExecs = flowExecs
+            .filter((e) => Ulid.construct(e.nodeId).toCanonical() === Ulid.construct(n.nodeId).toCanonical())
+            .sort((a, b) => {
+              if (!a.completedAt && !b.completedAt) return 0;
+              if (!a.completedAt) return 1;
+              if (!b.completedAt) return -1;
+              return Number(b.completedAt - a.completedAt);
+            });
+          const latestExec = nodeExecs[0];
+          return {
+            id: Ulid.construct(n.nodeId).toCanonical(),
+            name: n.name,
+            state: latestExec ? (FLOW_ITEM_STATE_NAMES[latestExec.state] ?? 'Unknown') : 'Unknown',
+          };
+        });
+
+      // Never-reached: non-ManualStart nodes without any executions
+      const neverReachedNodes = freshNodes
+        .filter(
+          (n) =>
+            n.nodeId != null &&
+            n.kind !== NodeKind.MANUAL_START &&
+            !executedNodeIds.has(Ulid.construct(n.nodeId).toCanonical()),
+        )
+        .map((n) => ({
+          id: Ulid.construct(n.nodeId).toCanonical(),
+          name: n.name,
+          kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+        }));
+
+      return {
+        executedNodes,
+        neverReachedNodes,
+        warning: neverReachedNodes.length > 0
+          ? `${neverReachedNodes.length} node(s) were never reached during execution. This may indicate an untaken branch or a wiring problem.`
+          : undefined,
+      };
     }
 
     default:

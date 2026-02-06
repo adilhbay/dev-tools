@@ -75,11 +75,6 @@ export interface VariableInfo {
   enabled: boolean;
 }
 
-export interface ExecutionSummary {
-  executedNodes: { id: string; name: string; state: string }[];
-  neverReachedNodes: { id: string; name: string; kind: string }[];
-}
-
 export interface ToolSchema {
   name: string;
   description: string;
