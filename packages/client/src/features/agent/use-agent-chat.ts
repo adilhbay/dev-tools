@@ -39,6 +39,7 @@ import {
   type ToolResult,
   type ToolSchema,
 } from './types';
+import { AgentLogger } from './agent-logger';
 
 const openai = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
@@ -422,6 +423,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         timestamp: Date.now(),
       };
 
+      const logger = new AgentLogger(currentFlowContext.flowId);
+      logger.logSessionStart(currentFlowContext.flowId, content);
+
       setState((prev) => ({
         ...prev,
         messages: [...prev.messages, userMessage],
@@ -433,11 +437,21 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         const systemPrompt = buildSystemPrompt(currentFlowContext);
         const tools = [...allToolSchemas, ...clientToolSchemas].map(formatToolAsOpenAI);
 
+        logger.logSystemPrompt(systemPrompt, {
+          nodes: currentFlowContext.nodes.length,
+          edges: currentFlowContext.edges.length,
+          variables: currentFlowContext.variables.length,
+        });
+        logger.logUserMessage(content);
+
         const openAIMessages: OpenAIMessage[] = [
           { role: 'system', content: systemPrompt },
           ...state.messages.map(messageToOpenAI),
           { role: 'user', content },
         ];
+
+        logger.logApiRequest(MODEL, openAIMessages.length, true);
+        let apiStart = performance.now();
 
         let response = await openai.chat.completions.create(
           {
@@ -449,6 +463,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           { signal: abortController.signal },
         );
 
+        logger.logApiResponse(performance.now() - apiStart, response.choices[0]?.finish_reason, response.usage);
         let assistantMessage = response.choices[0]?.message;
 
         let validationRetries = 0;
@@ -476,9 +491,27 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
               messages: [...prev.messages, toolMessage],
             }));
 
+            for (const tc of toolCalls) {
+              logger.logToolCallStart(tc.id, tc.name, tc.arguments);
+            }
+
+            const toolCallTimers = toolCalls.map(() => performance.now());
             const toolResults = await Promise.all(
               toolCalls.map((tc) => executeToolCall(tc, flowId, toolContext)),
             );
+
+            for (let i = 0; i < toolResults.length; i++) {
+              const tr = toolResults[i]!;
+              const tc = toolCalls[i]!;
+              const elapsed = performance.now() - toolCallTimers[i]!;
+              logger.logToolCallEnd(
+                tc.id,
+                tc.name,
+                elapsed,
+                tr.error ?? safeStringify(tr.result),
+                tr.error,
+              );
+            }
 
             // Apply layout after mutations
             const hadMutations = toolResults.some((tr: ToolResult) => tr.isMutation && !tr.error);
@@ -514,6 +547,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
               });
             }
 
+            logger.logApiRequest(MODEL, openAIMessages.length, true);
+            apiStart = performance.now();
+
             response = await openai.chat.completions.create(
               {
                 model: MODEL,
@@ -524,6 +560,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
               { signal: abortController.signal },
             );
 
+            logger.logApiResponse(performance.now() - apiStart, response.choices[0]?.finish_reason, response.usage);
             assistantMessage = response.choices[0]?.message;
           }
 
@@ -552,6 +589,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
             }));
 
           const orphans = detectOrphanNodes(nodeInfos, edgeInfos);
+          logger.logValidation(orphans.length, orphans.map((n) => n.name));
           if (orphans.length === 0) break;
 
           validationRetries++;
@@ -575,10 +613,15 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
               `You MUST connect these nodes before responding. Use connectSequentialNodes or connectBranchingNodes.`,
           });
 
+          logger.logApiRequest(MODEL, openAIMessages.length, true);
+          apiStart = performance.now();
+
           response = await openai.chat.completions.create(
             { model: MODEL, messages: openAIMessages, tools, tool_choice: 'auto' },
             { signal: abortController.signal },
           );
+
+          logger.logApiResponse(performance.now() - apiStart, response.choices[0]?.finish_reason, response.usage);
           assistantMessage = response.choices[0]?.message;
         } while (true);
 
@@ -589,6 +632,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           timestamp: Date.now(),
         };
 
+        logger.logAssistantMessage(finalMessage.content);
+        logger.logSessionEnd(true, false);
+
         setState((prev) => ({
           ...prev,
           messages: [...prev.messages, finalMessage],
@@ -597,9 +643,12 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       } catch (error) {
         // Ignore abort errors
         if (error instanceof Error && error.name === 'AbortError') {
+          logger.logSessionEnd(false, true);
           setState((prev) => ({ ...prev, isLoading: false }));
           return;
         }
+        logger.logError(error, 'sendMessage');
+        logger.logSessionEnd(false, false);
         const errorMessage = error instanceof Error ? error.message : 'An error occurred';
         setState((prev) => ({
           ...prev,

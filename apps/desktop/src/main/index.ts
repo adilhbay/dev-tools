@@ -4,6 +4,7 @@ import * as NodeRuntime from '@effect/platform-node/NodeRuntime';
 import { Config, Console, Effect, pipe, Runtime, String } from 'effect';
 import { app, BrowserWindow, dialog, Dialog, globalShortcut, ipcMain, protocol, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import fs from 'node:fs';
 import os from 'node:os';
 import { Agent } from 'undici';
 import icon from '../../build/icon.ico?asset';
@@ -197,6 +198,30 @@ const onReady = Effect.gen(function* () {
   ipcMain.on('update:start', () => void autoUpdater.downloadUpdate());
   autoUpdater.on('download-progress', (_) => void mainWindow.webContents.send('update:progress', _));
   autoUpdater.on('update-downloaded', () => void autoUpdater.quitAndInstall());
+
+  // Agent logging
+  const logDir = path.join(app.getPath('userData'), 'logs', 'agent');
+  fs.mkdirSync(logDir, { recursive: true });
+
+  ipcMain.on('agent-log:write', (_event, fileName: string, jsonLine: string) => {
+    const filePath = path.join(logDir, path.basename(fileName));
+    fs.appendFile(filePath, jsonLine, () => {});
+  });
+
+  ipcMain.on('agent-log:cleanup', () => {
+    const maxAge = 7 * 24 * 60 * 60 * 1000;
+    fs.readdir(logDir, (err, files) => {
+      if (err) return;
+      const now = Date.now();
+      for (const file of files) {
+        const filePath = path.join(logDir, file);
+        fs.stat(filePath, (err, stats) => {
+          if (err) return;
+          if (now - stats.mtimeMs > maxAge) fs.unlink(filePath, () => {});
+        });
+      }
+    });
+  });
 });
 
 const onActivate = Effect.gen(function* () {
