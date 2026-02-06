@@ -705,7 +705,9 @@ const executeToolInternal = async (
       for (let i = 0; i < nodeIds.length - 1; i++) {
         if (Array.isArray(nodeIds[i]) && Array.isArray(nodeIds[i + 1])) {
           throw new Error(
-            `connectChain: consecutive nested arrays at positions ${i} and ${i + 1} are not allowed.`,
+            `connectChain: consecutive nested arrays at positions ${i} and ${i + 1} are not allowed. ` +
+            `Insert a shared fan-in node between the groups, or split into separate connectChain calls. ` +
+            `Example: instead of ["A",["B","C"],["D","E"],"F"], use ["A",["B","C"],"Mid"] then ["Mid",["D","E"],"F"].`,
           );
         }
       }

@@ -370,6 +370,36 @@ export const detectOrphanNodes = (
   return nodes.filter((n) => n.kind !== 'ManualStart' && !reachable.has(n.id));
 };
 
+/**
+ * Detect dead-end nodes: reachable from Start but have no outgoing edges.
+ * Only flags as problematic when there are many dead-ends AND the flow has
+ * deeper interior nodes — indicating the model forgot fan-in connections.
+ */
+export const detectDeadEndNodes = (
+  nodes: Pick<NodeInfo, 'id' | 'kind' | 'name'>[],
+  edges: Pick<EdgeInfo, 'sourceId' | 'targetId'>[],
+): Pick<NodeInfo, 'id' | 'kind' | 'name'>[] => {
+  const hasOutgoing = new Set(edges.map((e) => e.sourceId));
+  const hasIncoming = new Set(edges.map((e) => e.targetId));
+
+  // Dead-ends: non-start nodes with incoming edges but no outgoing edges
+  const deadEnds = nodes.filter(
+    (n) => n.kind !== 'ManualStart' && hasIncoming.has(n.id) && !hasOutgoing.has(n.id),
+  );
+
+  // Interior nodes: non-start nodes that DO have outgoing edges (flow has depth)
+  const interiorNodes = nodes.filter(
+    (n) => n.kind !== 'ManualStart' && hasOutgoing.has(n.id),
+  );
+
+  // Only flag when: many dead-ends AND flow has interior depth
+  if (deadEnds.length > 3 && interiorNodes.length > 0) {
+    return deadEnds;
+  }
+
+  return [];
+};
+
 const buildOrphanNodesSection = (context: FlowContextData): string => {
   const orphans = detectOrphanNodes(context.nodes, context.edges);
 
@@ -399,6 +429,10 @@ export const buildCompactStateSummary = (context: FlowContextData): string => {
   if (endpoints.length > 0) {
     const endpointNames = endpoints.map((n) => `${n.name} (${n.id})`).join(', ');
     summary += `\nEndpoints (ready for connection): ${endpointNames}`;
+  }
+
+  if (endpoints.length > 5) {
+    summary += `\nWARNING: ${endpoints.length} dead-end nodes detected — ensure all parallel branches fan-in to their downstream node using connectChain.`;
   }
 
   if (orphans.length > 0) {
@@ -468,7 +502,7 @@ IMPORTANT RULES:
 2. When connecting nodes, use the node IDs from above.
 3. Node outputs are stored by node name. In JS code use ctx["NodeName"]. HTTP nodes output { response: { status, body }, request }. ForEach nodes expose { item, key } during iteration.
 4. A node can connect to multiple targets for parallel execution (all branches run and complete before downstream nodes continue). To run steps sequentially, chain them: Start → A → B → C. Only create Condition nodes when "then" and "else" lead to DIFFERENT destinations — if both go to the same node, skip the Condition.
-5. ALWAYS use connectChain for ALL connections — sequential, branching (auto-applies "then"), and fan-out. Examples: ["A","B"] single, ["A","B","C"] chain, ["A",["B","C"],"D"] fan-out. Pass sourceHandle: "else" or "loop" for non-default branches.
+5. ALWAYS use connectChain for ALL connections — sequential, branching (auto-applies "then"), fan-out, and fan-in. Examples: ["A","B"] single, ["A","B","C"] chain, ["A",["B","C"],"D"] fan-out/fan-in, [["B","C"],"D"] fan-in only. Pass sourceHandle: "else" or "loop" for non-default branches.
 6. Only use connectBranchingNodes when you need an "else" or "loop" handle on a single edge. NEVER use it for "then" — connectChain handles that automatically.
 7. Always confirm what you did after executing tools.
 8. If a node has State: Failure, use getNodeExecutions to get detailed error information.
@@ -476,7 +510,8 @@ IMPORTANT RULES:
 10. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
 11. Check FLOW ENDPOINTS to see the last node in each chain - new nodes connect there.
 12. ORPHAN NODES are mistakes — they must be connected to the flow via connectChain.
-13. Create ALL nodes first, then connect them all at once with connectChain. Do not alternate between creating and connecting.`
+13. Create ALL nodes first, then connect them all at once with connectChain. Do not alternate between creating and connecting.
+14. For multi-phase flows, use SEPARATE connectChain calls per phase with a shared fan-in node. Example: ["Start",["GET1","GET2"],"ProcessData"] then ["ProcessData",["POST1","POST2"],"End"]. NEVER use consecutive nested arrays — split them across calls.`
 };
 
 const buildSelectedNodesSection = (context: FlowContextData): string => {

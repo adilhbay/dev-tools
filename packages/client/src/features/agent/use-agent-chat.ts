@@ -26,7 +26,7 @@ import {
 import { useApiCollection } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
-import { buildCompactStateSummary, buildSystemPrompt, detectOrphanNodes, refreshFlowContext, useFlowContext } from './context-builder';
+import { buildCompactStateSummary, buildSystemPrompt, detectDeadEndNodes, detectOrphanNodes, refreshFlowContext, useFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
 import { executeToolCall, type Collections, type ToolExecutorContext } from './tool-executor';
 import {
@@ -664,14 +664,29 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
             }));
 
           const orphans = detectOrphanNodes(nodeInfos, edgeInfos);
+          const deadEnds = orphans.length === 0 ? detectDeadEndNodes(nodeInfos, edgeInfos) : [];
           logger.logValidation(orphans.length, orphans.map((n) => n.name));
-          if (orphans.length === 0) break;
+          if (orphans.length === 0 && deadEnds.length === 0) break;
 
           validationRetries++;
 
-          const orphanList = orphans
-            .map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind})`)
-            .join('\n');
+          let validationContent: string;
+          if (orphans.length > 0) {
+            const orphanList = orphans
+              .map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind})`)
+              .join('\n');
+            validationContent =
+              `FLOW VALIDATION FAILED: The following nodes are not reachable from ManualStart:\n${orphanList}\n\n` +
+              `You MUST connect these nodes before responding. Use connectChain to wire them in one call.`;
+          } else {
+            const deadEndList = deadEnds
+              .map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind})`)
+              .join('\n');
+            validationContent =
+              `STRUCTURAL WARNING: ${deadEnds.length} nodes are dead-ends (connected but have no downstream connections):\n${deadEndList}\n\n` +
+              `This typically means parallel branches are missing fan-in connections to a downstream node. ` +
+              `Use connectChain with a nested array for fan-in: [["NodeA","NodeB","NodeC"],"TargetNode"] connects all three to TargetNode.`;
+          }
 
           // Add the assistant's text response to messages before injecting validation
           if (assistantMessage?.content) {
@@ -683,9 +698,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
           openAIMessages.push({
             role: 'user',
-            content:
-              `FLOW VALIDATION FAILED: The following nodes are not reachable from ManualStart:\n${orphanList}\n\n` +
-              `You MUST connect these nodes before responding. Use connectChain to wire them in one call.`,
+            content: validationContent,
           });
 
           logger.logApiRequest(MODEL, openAIMessages.length, true);
