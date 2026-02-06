@@ -691,6 +691,12 @@ const executeToolInternal = async (
 
     case 'connectChain': {
       const nodeIds = args.nodeIds as (string | string[])[];
+      const handleOverride = args.sourceHandle as string | undefined;
+      if (handleOverride && !['then', 'else', 'loop'].includes(handleOverride)) {
+        throw new Error(
+          `Invalid sourceHandle "${handleOverride}". Valid values: "then", "else", "loop".`,
+        );
+      }
       if (!nodeIds || nodeIds.length < 2) {
         throw new Error('connectChain requires at least 2 elements.');
       }
@@ -765,12 +771,29 @@ const executeToolInternal = async (
           const isBranching =
             sourceNode && ['Condition', 'For', 'ForEach'].includes(sourceNode.kind);
 
+          // Validate handle is valid for the specific branching node type
+          if (isBranching && handleOverride) {
+            const validHandles =
+              sourceNode!.kind === 'Condition' ? ['then', 'else'] : ['then', 'loop'];
+            if (!validHandles.includes(handleOverride)) {
+              errors.push(
+                `Edge ${idx}: Invalid sourceHandle "${handleOverride}" for ${sourceNode!.kind} node "${sourceNode!.name}". ` +
+                  `Valid handles: ${validHandles.join(', ')}. Skipped.`,
+              );
+              continue;
+            }
+          }
+
+          const edgeHandle = isBranching
+            ? (HANDLE_KIND_MAP[handleOverride ?? 'then'] ?? HandleKind.THEN)
+            : undefined;
+
           await edgeCollection.utils.insert({
             edgeId,
             flowId,
             sourceId,
             targetId,
-            ...(isBranching ? { sourceHandle: HandleKind.THEN } : {}),
+            ...(edgeHandle !== undefined ? { sourceHandle: edgeHandle } : {}),
           });
 
           edgeIds.push(Ulid.construct(edgeId).toCanonical());

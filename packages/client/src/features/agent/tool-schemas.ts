@@ -122,6 +122,15 @@ if (createHttpNodeDef) {
   delete (params as Record<string, unknown>)['additionalProperties'];
 }
 
+// Patch connectBranchingNodes to clarify it's only for else/loop handles
+const connectBranchingNodesDef = mutationSchemas.find((t) => t.name === 'connectBranchingNodes');
+if (connectBranchingNodesDef) {
+  connectBranchingNodesDef.description =
+    'Connect a branching node using the "else" or "loop" handle ONLY. ' +
+    'For "then" connections, use connectChain instead — it auto-applies the "then" handle. ' +
+    'Requires sourceHandle: "else" (for Condition nodes) or "loop" (for For/ForEach nodes).';
+}
+
 /** All tool schemas combined - ready for AI tool calling */
 export const allToolSchemas = [...executionSchemas, ...explorationSchemas, ...mutationSchemas];
 

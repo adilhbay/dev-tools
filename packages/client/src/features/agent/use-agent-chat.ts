@@ -316,10 +316,11 @@ const clientToolSchemas: ToolSchema[] = [
   {
     name: 'connectChain',
     description:
-      'Connect nodes into a chain with optional parallel fan-out. ' +
+      'PREFERRED tool for ALL node connections. Connects nodes into a chain with optional parallel fan-out. ' +
       'Flat array: sequential chain. Nested array: parallel branches. ' +
       'Example: ["Start",["A","B"],"End"] creates Start→A, Start→B, A→End, B→End. ' +
-      'For branching nodes (Condition, For, ForEach), uses the "then" handle.',
+      'Works for ALL node types. For branching nodes (Condition, For, ForEach), auto-applies "then" handle by default. ' +
+      'Use sourceHandle "else" or "loop" to override for non-default branches.',
     parameters: {
       type: 'object',
       properties: {
@@ -331,6 +332,13 @@ const clientToolSchemas: ToolSchema[] = [
             '["A","B","C"] chains A→B→C. ' +
             '["A",["B","C"],"D"] fans out A→B, A→C then fans in B→D, C→D. ' +
             'Minimum 2 elements. No consecutive nested arrays.',
+        },
+        sourceHandle: {
+          type: 'string',
+          enum: ['then', 'else', 'loop'],
+          description:
+            'Handle for branching source nodes. Defaults to "then". ' +
+            'Use "else" for Condition false-branch, "loop" for For/ForEach loop-body.',
         },
       },
       required: ['nodeIds'],
@@ -459,7 +467,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
       try {
         const systemPrompt = buildSystemPrompt(currentFlowContext);
-        const tools = [...allToolSchemas, ...clientToolSchemas].map(formatToolAsOpenAI);
+        const tools = [...allToolSchemas, ...clientToolSchemas]
+          .filter((s) => s.name !== 'connectSequentialNodes')
+          .map(formatToolAsOpenAI);
 
         logger.logSystemPrompt(systemPrompt, {
           nodes: currentFlowContext.nodes.length,
@@ -675,7 +685,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
             role: 'user',
             content:
               `FLOW VALIDATION FAILED: The following nodes are not reachable from ManualStart:\n${orphanList}\n\n` +
-              `You MUST connect these nodes before responding. Use connectChain to wire them in one call, or connectSequentialNodes/connectBranchingNodes for individual connections.`,
+              `You MUST connect these nodes before responding. Use connectChain to wire them in one call.`,
           });
 
           logger.logApiRequest(MODEL, openAIMessages.length, true);

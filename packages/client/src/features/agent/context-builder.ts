@@ -467,15 +467,15 @@ IMPORTANT RULES:
 1. To find the start node, look for a node with kind "ManualStart".
 2. When connecting nodes, use the node IDs from above.
 3. Node outputs are stored by node name. In JS code use ctx["NodeName"]. HTTP nodes output { response: { status, body }, request }. ForEach nodes expose { item, key } during iteration.
-4. A node can connect to multiple targets for parallel execution (all branches run and complete before downstream nodes continue). To run steps sequentially, chain them: Start → A → B → C.
-5. Use connectChain for sequential chains and fan-out: ["A","B","C"] for A→B→C, ["A",["B","C"],"D"] for fan-out A→B,A→C then fan-in B→D,C→D. Use connectSequentialNodes for single connections.
-6. Use connectBranchingNodes for Condition/For/ForEach nodes (requires sourceHandle: "then", "else", or "loop").
+4. A node can connect to multiple targets for parallel execution (all branches run and complete before downstream nodes continue). To run steps sequentially, chain them: Start → A → B → C. Only create Condition nodes when "then" and "else" lead to DIFFERENT destinations — if both go to the same node, skip the Condition.
+5. ALWAYS use connectChain for ALL connections — sequential, branching (auto-applies "then"), and fan-out. Examples: ["A","B"] single, ["A","B","C"] chain, ["A",["B","C"],"D"] fan-out. Pass sourceHandle: "else" or "loop" for non-default branches.
+6. Only use connectBranchingNodes when you need an "else" or "loop" handle on a single edge. NEVER use it for "then" — connectChain handles that automatically.
 7. Always confirm what you did after executing tools.
 8. If a node has State: Failure, use getNodeExecutions to get detailed error information.
 9. Use getNodeOutput to inspect the input/output data of a node's most recent execution.
 10. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
 11. Check FLOW ENDPOINTS to see the last node in each chain - new nodes connect there.
-12. ORPHAN NODES are mistakes - they must be connected to the flow via connectChain or connectSequentialNodes.
+12. ORPHAN NODES are mistakes — they must be connected to the flow via connectChain.
 13. Create ALL nodes first, then connect them all at once with connectChain. Do not alternate between creating and connecting.`
 };
 
