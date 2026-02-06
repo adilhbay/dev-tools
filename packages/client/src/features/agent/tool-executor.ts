@@ -2,7 +2,7 @@ import type { Transport } from '@connectrpc/connect';
 import { eq } from '@tanstack/react-db';
 import { Ulid } from 'id128';
 import { FlowItemState, FlowService, HandleKind, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
-import { HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
+import { HttpBodyKind, HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import { request } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import type { FlowContextData, ToolCall, ToolResult } from './types';
@@ -64,6 +64,10 @@ interface Collections {
   forEachCollection: { utils: CollectionUtils };
   nodeHttpCollection: { utils: CollectionUtils };
   httpCollection: { utils: CollectionUtils };
+  httpSearchParamCollection: { utils: CollectionUtils };
+  httpHeaderCollection: { utils: CollectionUtils };
+  httpBodyRawCollection: { utils: CollectionUtils };
+  httpAssertCollection: { utils: CollectionUtils };
   executionCollection: CollectionData;
 }
 
@@ -120,6 +124,16 @@ const MUTATION_TOOLS = new Set([
   'connectBranchingNodes',
   'disconnectNodes',
   'deleteNode',
+  'addHttpSearchParam',
+  'updateHttpSearchParam',
+  'deleteHttpSearchParam',
+  'addHttpHeader',
+  'updateHttpHeader',
+  'deleteHttpHeader',
+  'setHttpBody',
+  'addHttpAssert',
+  'updateHttpAssert',
+  'deleteHttpAssert',
 ]);
 
 export const executeToolCall = async (
@@ -160,6 +174,10 @@ const executeToolInternal = async (
     forEachCollection,
     nodeHttpCollection,
     httpCollection,
+    httpSearchParamCollection,
+    httpHeaderCollection,
+    httpBodyRawCollection,
+    httpAssertCollection,
     executionCollection,
   } = collections;
 
@@ -485,44 +503,81 @@ const executeToolInternal = async (
 
       let httpId: Uint8Array;
       let httpIdStr: string;
-      let httpPromise: ReturnType<typeof httpCollection.utils.insert> | undefined;
+      const insertPromises: Promise<unknown>[] = [];
 
       if (args.httpId) {
         // Use existing HTTP request
         httpId = parseUlid(args.httpId as string);
         httpIdStr = args.httpId as string;
       } else {
-        // Create new HTTP request
+        // Validate HTTP method
+        const methodStr = ((args.method as string) ?? '').toUpperCase();
+        if (!methodStr) {
+          throw new Error(
+            'method is required when creating a new HTTP node. ' +
+              'Valid methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
+          );
+        }
+        const method = HTTP_METHOD_MAP[methodStr];
+        if (method === undefined) {
+          throw new Error(
+            `Invalid HTTP method: "${args.method}". ` +
+              'Valid methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
+          );
+        }
+
+        const url = (args.url as string) ?? '';
+        const methodsWithBody = new Set(['POST', 'PUT', 'PATCH']);
+        const needsBody = methodsWithBody.has(methodStr);
+
+        // Create new HTTP request with appropriate bodyKind
         httpId = Ulid.generate().bytes;
         httpIdStr = Ulid.construct(httpId).toCanonical();
-        const methodStr = ((args.method as string) ?? 'GET').toUpperCase();
-        const method = HTTP_METHOD_MAP[methodStr] ?? HttpMethod.GET;
-        const url = (args.url as string) ?? '';
 
-        httpPromise = httpCollection.utils.insert({
-          httpId,
-          method,
-          name: nodeName,
-          url,
-        });
+        insertPromises.push(
+          httpCollection.utils.insert({
+            httpId,
+            method,
+            name: nodeName,
+            url,
+            bodyKind: needsBody ? HttpBodyKind.RAW : HttpBodyKind.UNSPECIFIED,
+          }),
+        );
+
+        // If a body is provided and the method supports it, insert the raw body
+        const body = args.body as string | undefined;
+        if (body && needsBody) {
+          insertPromises.push(
+            collections.httpBodyRawCollection.utils.insert({
+              httpId,
+              data: body,
+            }),
+          );
+        } else if (body && !needsBody) {
+          throw new Error(
+            `Cannot set body for ${methodStr} requests. ` +
+              'Only POST, PUT, and PATCH methods support a request body.',
+          );
+        }
       }
 
       // Call all inserts before awaiting to ensure optimistic updates happen
       // synchronously before any sync responses can arrive from the server
-      const nodePromise = nodeCollection.utils.insert({
-        flowId,
-        kind: NodeKind.HTTP,
-        name: nodeName,
-        nodeId,
-        position,
-      });
+      insertPromises.push(
+        nodeCollection.utils.insert({
+          flowId,
+          kind: NodeKind.HTTP,
+          name: nodeName,
+          nodeId,
+          position,
+        }),
+        nodeHttpCollection.utils.insert({
+          nodeId,
+          httpId,
+        }),
+      );
 
-      const nodeHttpPromise = nodeHttpCollection.utils.insert({
-        nodeId,
-        httpId,
-      });
-
-      await Promise.all([httpPromise, nodePromise, nodeHttpPromise].filter(Boolean));
+      await Promise.all(insertPromises);
 
       return { nodeId: Ulid.construct(nodeId).toCanonical(), httpId: httpIdStr, name: nodeName };
     }
@@ -723,6 +778,196 @@ const executeToolInternal = async (
       });
 
       return { success: true, method: methodStr };
+    }
+
+    case 'getNodeHttp': {
+      const nodeIdStr = args.nodeId as string;
+      const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
+      if (!node) throw new Error(`Node not found: ${nodeIdStr}`);
+      if (node.kind !== 'HTTP') throw new Error(`Node "${node.name}" is not an HTTP node (it's ${node.kind})`);
+      if (!node.httpId) throw new Error(`HTTP node "${node.name}" has no associated HTTP request`);
+
+      const httpIdBytes = parseUlid(node.httpId);
+
+      // Query HTTP details from collections
+      const [httpData] = await queryCollection((_) =>
+        _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
+      );
+
+      const searchParams = await queryCollection((_) =>
+        _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
+      );
+
+      const headers = await queryCollection((_) =>
+        _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
+      );
+
+      const bodyRaw = await queryCollection((_) =>
+        _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
+      );
+
+      const asserts = await queryCollection((_) =>
+        _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
+      );
+
+      const HTTP_METHOD_NAMES: Record<number, string> = {
+        0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
+        5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
+      };
+      const HTTP_BODY_KIND_NAMES: Record<number, string> = {
+        0: 'none', 1: 'form_data', 2: 'url_encoded', 3: 'raw',
+      };
+
+      return {
+        httpId: node.httpId,
+        name: httpData?.name ?? node.name,
+        url: httpData?.url ?? '',
+        method: HTTP_METHOD_NAMES[httpData?.method ?? 0] ?? 'UNSPECIFIED',
+        bodyKind: HTTP_BODY_KIND_NAMES[httpData?.bodyKind ?? 0] ?? 'none',
+        searchParams: searchParams.map((sp) => ({
+          id: sp.httpSearchParamId ? Ulid.construct(sp.httpSearchParamId).toCanonical() : undefined,
+          key: sp.key,
+          value: sp.value,
+          enabled: sp.enabled,
+          description: sp.description,
+        })),
+        headers: headers.map((h) => ({
+          id: h.httpHeaderId ? Ulid.construct(h.httpHeaderId).toCanonical() : undefined,
+          key: h.key,
+          value: h.value,
+          enabled: h.enabled,
+          description: h.description,
+        })),
+        body: bodyRaw.length > 0 ? bodyRaw[0]?.data : undefined,
+        assertions: asserts.map((a) => ({
+          id: a.httpAssertId ? Ulid.construct(a.httpAssertId).toCanonical() : undefined,
+          value: a.value,
+          enabled: a.enabled,
+        })),
+      };
+    }
+
+    case 'addHttpSearchParam': {
+      const httpId = parseUlid(args.httpId as string);
+      const httpSearchParamId = Ulid.generate().bytes;
+
+      await httpSearchParamCollection.utils.insert({
+        httpSearchParamId,
+        httpId,
+        key: args.key as string,
+        value: (args.value as string) ?? '',
+        enabled: (args.enabled as boolean) ?? true,
+        description: (args.description as string) ?? '',
+        order: (args.order as number) ?? 0,
+      });
+
+      return { httpSearchParamId: Ulid.construct(httpSearchParamId).toCanonical() };
+    }
+
+    case 'updateHttpSearchParam': {
+      const httpSearchParamId = parseUlid(args.httpSearchParamId as string);
+      const updates: Record<string, unknown> = { httpSearchParamId };
+
+      if (args.key !== undefined) updates.key = args.key;
+      if (args.value !== undefined) updates.value = args.value;
+      if (args.enabled !== undefined) updates.enabled = args.enabled;
+      if (args.description !== undefined) updates.description = args.description;
+
+      httpSearchParamCollection.utils.update(updates);
+      return { success: true };
+    }
+
+    case 'deleteHttpSearchParam': {
+      const httpSearchParamId = parseUlid(args.httpSearchParamId as string);
+      httpSearchParamCollection.utils.delete({ httpSearchParamId });
+      return { success: true };
+    }
+
+    case 'addHttpHeader': {
+      const httpId = parseUlid(args.httpId as string);
+      const httpHeaderId = Ulid.generate().bytes;
+
+      await httpHeaderCollection.utils.insert({
+        httpHeaderId,
+        httpId,
+        key: args.key as string,
+        value: (args.value as string) ?? '',
+        enabled: (args.enabled as boolean) ?? true,
+        description: (args.description as string) ?? '',
+        order: (args.order as number) ?? 0,
+      });
+
+      return { httpHeaderId: Ulid.construct(httpHeaderId).toCanonical() };
+    }
+
+    case 'updateHttpHeader': {
+      const httpHeaderId = parseUlid(args.httpHeaderId as string);
+      const updates: Record<string, unknown> = { httpHeaderId };
+
+      if (args.key !== undefined) updates.key = args.key;
+      if (args.value !== undefined) updates.value = args.value;
+      if (args.enabled !== undefined) updates.enabled = args.enabled;
+      if (args.description !== undefined) updates.description = args.description;
+
+      httpHeaderCollection.utils.update(updates);
+      return { success: true };
+    }
+
+    case 'deleteHttpHeader': {
+      const httpHeaderId = parseUlid(args.httpHeaderId as string);
+      httpHeaderCollection.utils.delete({ httpHeaderId });
+      return { success: true };
+    }
+
+    case 'setHttpBody': {
+      const httpId = parseUlid(args.httpId as string);
+      const data = (args.data as string) ?? '';
+
+      // Update the HTTP request's bodyKind to Raw
+      httpCollection.utils.update({
+        httpId,
+        bodyKind: HttpBodyKind.RAW,
+      });
+
+      // Upsert the raw body (keyed by httpId)
+      httpBodyRawCollection.utils.update({
+        httpId,
+        data,
+      });
+
+      return { success: true };
+    }
+
+    case 'addHttpAssert': {
+      const httpId = parseUlid(args.httpId as string);
+      const httpAssertId = Ulid.generate().bytes;
+
+      await httpAssertCollection.utils.insert({
+        httpAssertId,
+        httpId,
+        value: args.value as string,
+        enabled: (args.enabled as boolean) ?? true,
+        order: (args.order as number) ?? 0,
+      });
+
+      return { httpAssertId: Ulid.construct(httpAssertId).toCanonical() };
+    }
+
+    case 'updateHttpAssert': {
+      const httpAssertId = parseUlid(args.httpAssertId as string);
+      const updates: Record<string, unknown> = { httpAssertId };
+
+      if (args.value !== undefined) updates.value = args.value;
+      if (args.enabled !== undefined) updates.enabled = args.enabled;
+
+      httpAssertCollection.utils.update(updates);
+      return { success: true };
+    }
+
+    case 'deleteHttpAssert': {
+      const httpAssertId = parseUlid(args.httpAssertId as string);
+      httpAssertCollection.utils.delete({ httpAssertId });
+      return { success: true };
     }
 
     case 'flowRunRequest': {

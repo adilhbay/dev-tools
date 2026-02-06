@@ -16,7 +16,13 @@ import {
   NodeHttpCollectionSchema,
   NodeJsCollectionSchema,
 } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
-import { HttpCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/http';
+import {
+  HttpAssertCollectionSchema,
+  HttpBodyRawCollectionSchema,
+  HttpCollectionSchema,
+  HttpHeaderCollectionSchema,
+  HttpSearchParamCollectionSchema,
+} from '@the-dev-tools/spec/tanstack-db/v1/api/http';
 import { useApiCollection } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
@@ -165,6 +171,147 @@ const clientToolSchemas: ToolSchema[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'addHttpSearchParam',
+    description: 'Add a query parameter to an HTTP request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpId: { type: 'string', description: 'The HTTP request ID' },
+        key: { type: 'string', description: 'Parameter name' },
+        value: { type: 'string', description: 'Parameter value' },
+        enabled: { type: 'boolean', description: 'Whether the parameter is active (default: true)' },
+        description: { type: 'string', description: 'Description of the parameter' },
+      },
+      required: ['httpId', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'updateHttpSearchParam',
+    description: 'Update an existing query parameter on an HTTP request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpSearchParamId: { type: 'string', description: 'The search param ID to update' },
+        key: { type: 'string', description: 'New parameter name' },
+        value: { type: 'string', description: 'New parameter value' },
+        enabled: { type: 'boolean', description: 'Whether the parameter is active' },
+        description: { type: 'string', description: 'New description' },
+      },
+      required: ['httpSearchParamId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'deleteHttpSearchParam',
+    description: 'Delete a query parameter from an HTTP request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpSearchParamId: { type: 'string', description: 'The search param ID to delete' },
+      },
+      required: ['httpSearchParamId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'addHttpHeader',
+    description: 'Add a header to an HTTP request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpId: { type: 'string', description: 'The HTTP request ID' },
+        key: { type: 'string', description: 'Header name (e.g. Content-Type, Authorization)' },
+        value: { type: 'string', description: 'Header value' },
+        enabled: { type: 'boolean', description: 'Whether the header is active (default: true)' },
+        description: { type: 'string', description: 'Description of the header' },
+      },
+      required: ['httpId', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'updateHttpHeader',
+    description: 'Update an existing header on an HTTP request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpHeaderId: { type: 'string', description: 'The header ID to update' },
+        key: { type: 'string', description: 'New header name' },
+        value: { type: 'string', description: 'New header value' },
+        enabled: { type: 'boolean', description: 'Whether the header is active' },
+        description: { type: 'string', description: 'New description' },
+      },
+      required: ['httpHeaderId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'deleteHttpHeader',
+    description: 'Delete a header from an HTTP request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpHeaderId: { type: 'string', description: 'The header ID to delete' },
+      },
+      required: ['httpHeaderId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'setHttpBody',
+    description: 'Set the raw body content of an HTTP request. The HTTP request must use POST, PUT, or PATCH method.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpId: { type: 'string', description: 'The HTTP request ID' },
+        data: { type: 'string', description: 'The raw body content (e.g. JSON string)' },
+      },
+      required: ['httpId', 'data'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'addHttpAssert',
+    description: 'Add an assertion to an HTTP request. Assertions validate the response (e.g. status code, body content).',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpId: { type: 'string', description: 'The HTTP request ID' },
+        value: { type: 'string', description: 'Assertion expression (e.g. "response.status == 200")' },
+        enabled: { type: 'boolean', description: 'Whether the assertion is active (default: true)' },
+      },
+      required: ['httpId', 'value'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'updateHttpAssert',
+    description: 'Update an existing assertion on an HTTP request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpAssertId: { type: 'string', description: 'The assertion ID to update' },
+        value: { type: 'string', description: 'New assertion expression' },
+        enabled: { type: 'boolean', description: 'Whether the assertion is active' },
+      },
+      required: ['httpAssertId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'deleteHttpAssert',
+    description: 'Delete an assertion from an HTTP request.',
+    parameters: {
+      type: 'object',
+      properties: {
+        httpAssertId: { type: 'string', description: 'The assertion ID to delete' },
+      },
+      required: ['httpAssertId'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 interface UseAgentChatOptions {
@@ -201,6 +348,10 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
   const forEachCollection = useApiCollection(NodeForEachCollectionSchema);
   const nodeHttpCollection = useApiCollection(NodeHttpCollectionSchema);
   const httpCollection = useApiCollection(HttpCollectionSchema);
+  const httpSearchParamCollection = useApiCollection(HttpSearchParamCollectionSchema);
+  const httpHeaderCollection = useApiCollection(HttpHeaderCollectionSchema);
+  const httpBodyRawCollection = useApiCollection(HttpBodyRawCollectionSchema);
+  const httpAssertCollection = useApiCollection(HttpAssertCollectionSchema);
   const executionCollection = useApiCollection(NodeExecutionCollectionSchema);
   const flowCollection = useApiCollection(FlowCollectionSchema);
 
@@ -228,6 +379,10 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         forEachCollection,
         nodeHttpCollection,
         httpCollection,
+        httpSearchParamCollection,
+        httpHeaderCollection,
+        httpBodyRawCollection,
+        httpAssertCollection,
         executionCollection,
       };
 
@@ -457,7 +612,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         }
       }
     },
-    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, executionCollection, flowCollection, state.messages],
+    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, flowCollection, state.messages],
   );
 
   const clearMessages = useCallback(() => {
