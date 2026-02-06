@@ -106,6 +106,22 @@ export const mutationSchemas = Object.values(MutationSchemas).map((s) =>
   schemaToToolDefinition(s as Schema.Schema<unknown, unknown>),
 );
 
+// Patch CreateHttpNode to include optional body field (executor already handles it)
+const createHttpNodeDef = mutationSchemas.find((t) => t.name === 'createHttpNode');
+if (createHttpNodeDef) {
+  const params = createHttpNodeDef.parameters as {
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+  params.properties['body'] = {
+    type: 'string',
+    description:
+      'Optional JSON request body for POST, PUT, or PATCH requests. Only valid for methods that support a body.',
+  };
+  // Remove additionalProperties:false so the extra field is accepted
+  delete (params as Record<string, unknown>)['additionalProperties'];
+}
+
 /** All tool schemas combined - ready for AI tool calling */
 export const allToolSchemas = [...executionSchemas, ...explorationSchemas, ...mutationSchemas];
 

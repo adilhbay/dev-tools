@@ -11,6 +11,7 @@ import {
 } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
 import { HttpCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/http';
 import { useApiCollection } from '~/shared/api';
+import { queryCollection } from '~/shared/lib';
 import type { EdgeInfo, FlowContextData, NodeExecutionInfo, NodeInfo, VariableInfo } from './types';
 
 const NODE_KIND_NAMES: Record<number, string> = {
@@ -183,6 +184,134 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
   };
 };
 
+type FlowCollections = {
+  nodeCollection: ReturnType<typeof useApiCollection<typeof NodeCollectionSchema>>;
+  edgeCollection: ReturnType<typeof useApiCollection<typeof EdgeCollectionSchema>>;
+  variableCollection: ReturnType<typeof useApiCollection<typeof FlowVariableCollectionSchema>>;
+  executionCollection: ReturnType<typeof useApiCollection<typeof NodeExecutionCollectionSchema>>;
+  nodeHttpCollection: ReturnType<typeof useApiCollection<typeof NodeHttpCollectionSchema>>;
+  httpCollection: ReturnType<typeof useApiCollection<typeof HttpCollectionSchema>>;
+};
+
+/**
+ * Async version of useFlowContext that queries collections directly.
+ * Use this outside React's render cycle (e.g. in the agent tool loop)
+ * to get a fresh snapshot of flow data after mutations.
+ */
+export const refreshFlowContext = async (
+  flowId: Uint8Array,
+  collections: FlowCollections,
+): Promise<FlowContextData> => {
+  const { nodeCollection, edgeCollection, variableCollection, executionCollection, nodeHttpCollection, httpCollection } =
+    collections;
+
+  const nodesData = await queryCollection((_) =>
+    _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
+  );
+
+  const edgesData = await queryCollection((_) =>
+    _.from({ edge: edgeCollection }).where((_) => eq(_.edge.flowId, flowId)),
+  );
+
+  const variablesData = await queryCollection((_) =>
+    _.from({ variable: variableCollection }).where((_) => eq(_.variable.flowId, flowId)),
+  );
+
+  const nodeIdSet = new Set(
+    nodesData.filter((n) => n.nodeId != null).map((n) => Ulid.construct(n.nodeId).toCanonical()),
+  );
+
+  const allExecutionsData = await queryCollection((_) =>
+    _.from({ exec: executionCollection }),
+  );
+  const executionsData = allExecutionsData.filter(
+    (e) => e.nodeId != null && nodeIdSet.has(Ulid.construct(e.nodeId).toCanonical()),
+  );
+
+  const nodeHttpData = await queryCollection((_) =>
+    _.from({ nodeHttp: nodeHttpCollection }),
+  );
+  const nodeHttpMap = new Map(
+    nodeHttpData
+      .filter((nh) => nh.nodeId != null && nh.httpId != null)
+      .map((nh) => [Ulid.construct(nh.nodeId).toCanonical(), Ulid.construct(nh.httpId).toCanonical()]),
+  );
+
+  const httpData = await queryCollection((_) =>
+    _.from({ http: httpCollection }),
+  );
+  const httpMethodMap = new Map(
+    httpData
+      .filter((h) => h.httpId != null)
+      .map((h) => [Ulid.construct(h.httpId).toCanonical(), HTTP_METHOD_NAMES[h.method] ?? 'UNSPECIFIED']),
+  );
+
+  const nodes: NodeInfo[] = nodesData
+    .filter((n) => n.nodeId != null)
+    .map((n) => {
+      const nodeIdStr = Ulid.construct(n.nodeId).toCanonical();
+      const httpId = n.kind === NodeKind.HTTP ? nodeHttpMap.get(nodeIdStr) : undefined;
+      const httpMethod = httpId ? httpMethodMap.get(httpId) : undefined;
+      return {
+        id: nodeIdStr,
+        name: n.name,
+        kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+        position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
+        state: FLOW_ITEM_STATE_NAMES[n.state] ?? 'Idle',
+        info: n.info ?? undefined,
+        httpId,
+        httpMethod,
+      };
+    });
+
+  const edges: EdgeInfo[] = edgesData
+    .filter((e) => e.edgeId != null)
+    .map((e) => ({
+      id: Ulid.construct(e.edgeId).toCanonical(),
+      sourceId: Ulid.construct(e.sourceId).toCanonical(),
+      targetId: Ulid.construct(e.targetId).toCanonical(),
+      sourceHandle: e.sourceHandle !== undefined ? String(e.sourceHandle) : undefined,
+    }));
+
+  const variables: VariableInfo[] = variablesData
+    .filter((v) => v.flowVariableId != null)
+    .map((v) => ({
+      id: Ulid.construct(v.flowVariableId).toCanonical(),
+      key: v.key,
+      value: v.value,
+      enabled: v.enabled,
+    }));
+
+  const executionsByNode = new Map<string, (typeof executionsData)[0]>();
+  for (const e of executionsData) {
+    if (e.nodeExecutionId == null) continue;
+    const nodeIdStr = Ulid.construct(e.nodeId).toCanonical();
+    const existing = executionsByNode.get(nodeIdStr);
+    if (!existing || (e.completedAt && (!existing.completedAt || e.completedAt > existing.completedAt))) {
+      executionsByNode.set(nodeIdStr, e);
+    }
+  }
+
+  const executions: NodeExecutionInfo[] = Array.from(executionsByNode.values()).map((e) => ({
+    id: Ulid.construct(e.nodeExecutionId).toCanonical(),
+    nodeId: Ulid.construct(e.nodeId).toCanonical(),
+    name: e.name,
+    state: FLOW_ITEM_STATE_NAMES[e.state] ?? 'Idle',
+    error: e.error ?? undefined,
+    input: e.input ?? undefined,
+    output: e.output ?? undefined,
+    completedAt: e.completedAt instanceof Date ? e.completedAt.toISOString() : e.completedAt,
+  }));
+
+  return {
+    flowId: Ulid.construct(flowId).toCanonical(),
+    nodes,
+    edges,
+    variables,
+    executions,
+  };
+};
+
 const buildFlowEndpointsSection = (context: FlowContextData): string => {
   // Build outgoing edge map
   const outgoing = new Map<string, string[]>();
@@ -322,8 +451,7 @@ IMPORTANT RULES:
 9. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
 10. Node positions are automatically calculated - you do not need to specify positions when creating nodes.
 11. Check FLOW ENDPOINTS to see where new nodes should connect.
-12. ORPHAN NODES are mistakes - they need to be connected to the flow.
-13. After creating ANY node, you MUST immediately connect it with connectSequentialNodes or connectBranchingNodes before creating another node or responding.`;
+12. ORPHAN NODES are mistakes - they need to be connected to the flow.`
 };
 
 const buildSelectedNodesSection = (context: FlowContextData): string => {

@@ -929,11 +929,16 @@ const executeToolInternal = async (
         bodyKind: HttpBodyKind.RAW,
       });
 
-      // Upsert the raw body (keyed by httpId)
-      httpBodyRawCollection.utils.update({
-        httpId,
-        data,
-      });
+      // Check if body record exists, then insert or update
+      const existingBody = await queryCollection((_) =>
+        _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpId)),
+      );
+
+      if (existingBody.length > 0) {
+        httpBodyRawCollection.utils.update({ httpId, data });
+      } else {
+        await httpBodyRawCollection.utils.insert({ httpId, data });
+      }
 
       return { success: true };
     }

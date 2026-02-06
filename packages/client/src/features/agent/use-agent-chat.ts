@@ -26,7 +26,7 @@ import {
 import { useApiCollection } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
-import { buildSystemPrompt, detectOrphanNodes, useFlowContext } from './context-builder';
+import { buildSystemPrompt, detectOrphanNodes, refreshFlowContext, useFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
 import { executeToolCall, type Collections, type ToolExecutorContext } from './tool-executor';
 import {
@@ -513,11 +513,24 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
               );
             }
 
-            // Apply layout after mutations
+            // Apply layout and refresh context after mutations
             const hadMutations = toolResults.some((tr: ToolResult) => tr.isMutation && !tr.error);
             if (hadMutations) {
               // Query fresh data directly from collections to avoid stale React context
               await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
+
+              // Refresh flow context so subsequent tool calls see newly created nodes
+              toolContext.flowContext = {
+                ...(await refreshFlowContext(flowId, {
+                  nodeCollection,
+                  edgeCollection,
+                  variableCollection,
+                  executionCollection,
+                  nodeHttpCollection,
+                  httpCollection,
+                })),
+                selectedNodeIds: selectedNodeIdsRef.current,
+              };
             }
 
             const toolResultMessages: Message[] = toolResults.map((tr) => ({
