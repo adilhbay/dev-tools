@@ -316,17 +316,21 @@ const clientToolSchemas: ToolSchema[] = [
   {
     name: 'connectChain',
     description:
-      'Connect an ordered list of nodes into a sequential chain. ' +
-      'Creates edges: nodeIds[0] → nodeIds[1] → nodeIds[2] → ... → nodeIds[N]. ' +
-      'For branching nodes (Condition, For, ForEach), uses the "then" handle. ' +
-      'Use this instead of multiple connectSequentialNodes calls.',
+      'Connect nodes into a chain with optional parallel fan-out. ' +
+      'Flat array: sequential chain. Nested array: parallel branches. ' +
+      'Example: ["Start",["A","B"],"End"] creates Start→A, Start→B, A→End, B→End. ' +
+      'For branching nodes (Condition, For, ForEach), uses the "then" handle.',
     parameters: {
       type: 'object',
       properties: {
         nodeIds: {
           type: 'array',
-          items: { type: 'string' },
-          description: 'Ordered list of node IDs to chain together. Minimum 2.',
+          items: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+          description:
+            'Ordered list of node IDs. Use nested arrays for fan-out/fan-in: ' +
+            '["A","B","C"] chains A→B→C. ' +
+            '["A",["B","C"],"D"] fans out A→B, A→C then fans in B→D, C→D. ' +
+            'Minimum 2 elements. No consecutive nested arrays.',
         },
       },
       required: ['nodeIds'],

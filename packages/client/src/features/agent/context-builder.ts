@@ -468,7 +468,7 @@ IMPORTANT RULES:
 2. When connecting nodes, use the node IDs from above.
 3. Node outputs are stored by node name. In JS code use ctx["NodeName"]. HTTP nodes output { response: { status, body }, request }. ForEach nodes expose { item, key } during iteration.
 4. A node can connect to multiple targets for parallel execution (all branches run and complete before downstream nodes continue). To run steps sequentially, chain them: Start → A → B → C.
-5. Use connectChain to wire a sequential chain in one call (preferred). Use connectSequentialNodes for single connections or fan-out.
+5. Use connectChain for sequential chains and fan-out: ["A","B","C"] for A→B→C, ["A",["B","C"],"D"] for fan-out A→B,A→C then fan-in B→D,C→D. Use connectSequentialNodes for single connections.
 6. Use connectBranchingNodes for Condition/For/ForEach nodes (requires sourceHandle: "then", "else", or "loop").
 7. Always confirm what you did after executing tools.
 8. If a node has State: Failure, use getNodeExecutions to get detailed error information.

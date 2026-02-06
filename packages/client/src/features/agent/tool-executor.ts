@@ -690,18 +690,55 @@ const executeToolInternal = async (
     }
 
     case 'connectChain': {
-      const nodeIds = args.nodeIds as string[];
+      const nodeIds = args.nodeIds as (string | string[])[];
       if (!nodeIds || nodeIds.length < 2) {
-        throw new Error('connectChain requires at least 2 node IDs.');
+        throw new Error('connectChain requires at least 2 elements.');
+      }
+
+      // Validate: no consecutive nested arrays
+      for (let i = 0; i < nodeIds.length - 1; i++) {
+        if (Array.isArray(nodeIds[i]) && Array.isArray(nodeIds[i + 1])) {
+          throw new Error(
+            `connectChain: consecutive nested arrays at positions ${i} and ${i + 1} are not allowed.`,
+          );
+        }
+      }
+
+      // Validate: parallel groups have ≥2 unique IDs
+      for (let i = 0; i < nodeIds.length; i++) {
+        const el = nodeIds[i]!;
+        if (Array.isArray(el)) {
+          const unique = new Set(el);
+          if (unique.size < 2) {
+            throw new Error(
+              `connectChain: parallel group at position ${i} must have at least 2 unique node IDs.`,
+            );
+          }
+          if (unique.size !== el.length) {
+            throw new Error(
+              `connectChain: parallel group at position ${i} contains duplicate node IDs.`,
+            );
+          }
+        }
+      }
+
+      // Expand consecutive element pairs into edge pairs
+      const edgePairs: [string, string][] = [];
+      for (let i = 0; i < nodeIds.length - 1; i++) {
+        const current = nodeIds[i]!;
+        const next = nodeIds[i + 1]!;
+        const sources = Array.isArray(current) ? current : [current];
+        const targets = Array.isArray(next) ? next : [next];
+        for (const s of sources)
+          for (const t of targets) edgePairs.push([s, t]);
       }
 
       const edgeIds: string[] = [];
       const errors: string[] = [];
 
       // Process SEQUENTIALLY to avoid parallel race conditions
-      for (let i = 0; i < nodeIds.length - 1; i++) {
-        const sourceIdStr = nodeIds[i]!;
-        const targetIdStr = nodeIds[i + 1]!;
+      for (let idx = 0; idx < edgePairs.length; idx++) {
+        const [sourceIdStr, targetIdStr] = edgePairs[idx]!;
 
         try {
           const sourceId = parseUlid(sourceIdStr);
@@ -718,7 +755,7 @@ const executeToolInternal = async (
           );
           if (duplicateEdge) {
             errors.push(
-              `Step ${i}: Edge from ${sourceIdStr} to ${targetIdStr} already exists. Skipped.`,
+              `Edge ${idx}: Edge from ${sourceIdStr} to ${targetIdStr} already exists. Skipped.`,
             );
             continue;
           }
@@ -738,7 +775,9 @@ const executeToolInternal = async (
 
           edgeIds.push(Ulid.construct(edgeId).toCanonical());
         } catch (error) {
-          errors.push(`Step ${i}: ${error instanceof Error ? error.message : String(error)}`);
+          errors.push(
+            `Edge ${idx}: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
       }
 
