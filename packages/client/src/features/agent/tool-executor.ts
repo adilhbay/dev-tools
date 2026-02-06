@@ -122,6 +122,7 @@ const MUTATION_TOOLS = new Set([
   'createHttpNode',
   'connectSequentialNodes',
   'connectBranchingNodes',
+  'connectChain',
   'disconnectNodes',
   'deleteNode',
   'addHttpSearchParam',
@@ -598,13 +599,17 @@ const executeToolInternal = async (
           );
         }
 
-        // Validation: Check source doesn't already have outgoing edge
-        const existingEdges = flowContext.edges.filter((e) => e.sourceId === sourceIdStr);
-        if (existingEdges.length > 0) {
-          const existingTarget = flowContext.nodes.find((n) => n.id === existingEdges[0]!.targetId);
+        // Validation: Prevent duplicate edges (same source → same target)
+        const existingEdges = await queryCollection((_) =>
+          _.from({ e: edgeCollection }).where((_) => eq(_.e.sourceId, parseUlid(sourceIdStr))),
+        );
+        const duplicateEdge = existingEdges.find(
+          (e) => Ulid.construct(e.targetId).toCanonical() === targetIdStr,
+        );
+        if (duplicateEdge) {
           throw new Error(
-            `Node "${sourceNode.name}" already connects to "${existingTarget?.name ?? existingEdges[0]!.targetId}". ` +
-              `Sequential nodes can only have one output. Use disconnectNodes first to reconnect.`,
+            `Node "${sourceNode.name}" already has a connection to "${targetIdStr}". ` +
+              `This exact edge already exists.`,
           );
         }
       }
@@ -650,16 +655,18 @@ const executeToolInternal = async (
           );
         }
 
-        // Validation: Check handle isn't already connected
-        // Note: sourceHandle in flowContext is stored as the numeric enum value (as string)
-        const handleKindValue = String(HANDLE_KIND_MAP[handleStr]);
-        const existingEdge = flowContext.edges.find(
-          (e) => e.sourceId === sourceIdStr && e.sourceHandle === handleKindValue,
+        // Validation: Check handle isn't already connected (live query)
+        const existingEdgesForHandle = await queryCollection((_) =>
+          _.from({ e: edgeCollection }).where((_) => eq(_.e.sourceId, parseUlid(sourceIdStr))),
+        );
+        const existingEdge = existingEdgesForHandle.find(
+          (e) => e.sourceHandle === HANDLE_KIND_MAP[handleStr],
         );
         if (existingEdge) {
-          const existingTarget = flowContext.nodes.find((n) => n.id === existingEdge.targetId);
+          const existingTargetId = Ulid.construct(existingEdge.targetId).toCanonical();
+          const existingTarget = flowContext.nodes.find((n) => n.id === existingTargetId);
           throw new Error(
-            `The "${handleStr}" handle of "${sourceNode.name}" is already connected to "${existingTarget?.name}". ` +
+            `The "${handleStr}" handle of "${sourceNode.name}" is already connected to "${existingTarget?.name ?? existingTargetId}". ` +
               `Use disconnectNodes first to reconnect.`,
           );
         }
@@ -680,6 +687,66 @@ const executeToolInternal = async (
       });
 
       return { edgeId: Ulid.construct(edgeId).toCanonical() };
+    }
+
+    case 'connectChain': {
+      const nodeIds = args.nodeIds as string[];
+      if (!nodeIds || nodeIds.length < 2) {
+        throw new Error('connectChain requires at least 2 node IDs.');
+      }
+
+      const edgeIds: string[] = [];
+      const errors: string[] = [];
+
+      // Process SEQUENTIALLY to avoid parallel race conditions
+      for (let i = 0; i < nodeIds.length - 1; i++) {
+        const sourceIdStr = nodeIds[i]!;
+        const targetIdStr = nodeIds[i + 1]!;
+
+        try {
+          const sourceId = parseUlid(sourceIdStr);
+          const targetId = parseUlid(targetIdStr);
+          const edgeId = Ulid.generate().bytes;
+
+          // Query live edges to check for existing outgoing connections
+          const existingEdges = await queryCollection((_) =>
+            _.from({ e: edgeCollection }).where((_) => eq(_.e.sourceId, sourceId)),
+          );
+
+          const duplicateEdge = existingEdges.find(
+            (e) => Ulid.construct(e.targetId).toCanonical() === targetIdStr,
+          );
+          if (duplicateEdge) {
+            errors.push(
+              `Step ${i}: Edge from ${sourceIdStr} to ${targetIdStr} already exists. Skipped.`,
+            );
+            continue;
+          }
+
+          // Determine handle kind for branching nodes
+          const sourceNode = flowContext.nodes.find((n) => n.id === sourceIdStr);
+          const isBranching =
+            sourceNode && ['Condition', 'For', 'ForEach'].includes(sourceNode.kind);
+
+          await edgeCollection.utils.insert({
+            edgeId,
+            flowId,
+            sourceId,
+            targetId,
+            ...(isBranching ? { sourceHandle: HandleKind.THEN } : {}),
+          });
+
+          edgeIds.push(Ulid.construct(edgeId).toCanonical());
+        } catch (error) {
+          errors.push(`Step ${i}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      return {
+        edgesCreated: edgeIds.length,
+        edgeIds,
+        ...(errors.length > 0 ? { errors } : {}),
+      };
     }
 
     case 'disconnectNodes': {

@@ -385,6 +385,30 @@ ORPHAN NODES (not reachable from start):
 ${list}`;
 };
 
+export const buildCompactStateSummary = (context: FlowContextData): string => {
+  const orphans = detectOrphanNodes(context.nodes, context.edges);
+
+  // Find endpoint nodes (sequential nodes with no outgoing edges)
+  const outgoing = new Set(context.edges.map((e) => e.sourceId));
+  const endpoints = context.nodes.filter(
+    (n) => ['ManualStart', 'JavaScript', 'HTTP'].includes(n.kind) && !outgoing.has(n.id),
+  );
+
+  let summary = `[Flow updated: ${context.nodes.length} nodes, ${context.edges.length} edges]`;
+
+  if (endpoints.length > 0) {
+    const endpointNames = endpoints.map((n) => `${n.name} (${n.id})`).join(', ');
+    summary += `\nEndpoints (ready for connection): ${endpointNames}`;
+  }
+
+  if (orphans.length > 0) {
+    const orphanNames = orphans.map((n) => `${n.name} (${n.id})`).join(', ');
+    summary += `\nOrphans (NOT connected to flow): ${orphanNames}`;
+  }
+
+  return summary;
+};
+
 export const buildSystemPrompt = (context: FlowContextData): string => {
   const nodesList = context.nodes
     .map((n) => {
@@ -443,15 +467,16 @@ IMPORTANT RULES:
 1. To find the start node, look for a node with kind "ManualStart".
 2. When connecting nodes, use the node IDs from above.
 3. Node outputs are stored by node name. In JS code use ctx["NodeName"]. HTTP nodes output { response: { status, body }, request }. ForEach nodes expose { item, key } during iteration.
-4. Use connectSequentialNodes for ManualStart, JavaScript, and HTTP nodes.
-5. Use connectBranchingNodes for Condition, For, and ForEach nodes (requires sourceHandle: "then", "else", or "loop").
-6. Always confirm what you did after executing tools.
-7. If a node has State: Failure, use getNodeExecutions to get detailed error information.
-8. Use getNodeOutput to inspect the input/output data of a node's most recent execution.
-9. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
-10. Node positions are automatically calculated - you do not need to specify positions when creating nodes.
-11. Check FLOW ENDPOINTS to see where new nodes should connect.
-12. ORPHAN NODES are mistakes - they need to be connected to the flow.`
+4. A node can connect to multiple targets for parallel execution (all branches run and complete before downstream nodes continue). To run steps sequentially, chain them: Start → A → B → C.
+5. Use connectChain to wire a sequential chain in one call (preferred). Use connectSequentialNodes for single connections or fan-out.
+6. Use connectBranchingNodes for Condition/For/ForEach nodes (requires sourceHandle: "then", "else", or "loop").
+7. Always confirm what you did after executing tools.
+8. If a node has State: Failure, use getNodeExecutions to get detailed error information.
+9. Use getNodeOutput to inspect the input/output data of a node's most recent execution.
+10. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
+11. Check FLOW ENDPOINTS to see the last node in each chain - new nodes connect there.
+12. ORPHAN NODES are mistakes - they must be connected to the flow via connectChain or connectSequentialNodes.
+13. Create ALL nodes first, then connect them all at once with connectChain. Do not alternate between creating and connecting.`
 };
 
 const buildSelectedNodesSection = (context: FlowContextData): string => {

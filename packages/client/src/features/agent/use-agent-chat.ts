@@ -26,7 +26,7 @@ import {
 import { useApiCollection } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
-import { buildSystemPrompt, detectOrphanNodes, refreshFlowContext, useFlowContext } from './context-builder';
+import { buildCompactStateSummary, buildSystemPrompt, detectOrphanNodes, refreshFlowContext, useFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
 import { executeToolCall, type Collections, type ToolExecutorContext } from './tool-executor';
 import {
@@ -313,6 +313,26 @@ const clientToolSchemas: ToolSchema[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'connectChain',
+    description:
+      'Connect an ordered list of nodes into a sequential chain. ' +
+      'Creates edges: nodeIds[0] → nodeIds[1] → nodeIds[2] → ... → nodeIds[N]. ' +
+      'For branching nodes (Condition, For, ForEach), uses the "then" handle. ' +
+      'Use this instead of multiple connectSequentialNodes calls.',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Ordered list of node IDs to chain together. Minimum 2.',
+        },
+      },
+      required: ['nodeIds'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 interface UseAgentChatOptions {
@@ -531,6 +551,10 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
                 })),
                 selectedNodeIds: selectedNodeIdsRef.current,
               };
+
+              // Inject updated flow state so LLM sees current topology
+              const stateSummary = buildCompactStateSummary(toolContext.flowContext);
+              openAIMessages.push({ role: 'system', content: stateSummary });
             }
 
             const toolResultMessages: Message[] = toolResults.map((tr) => ({
@@ -552,11 +576,35 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
               tool_calls: assistantMessage.tool_calls,
             });
 
+            // Collapse identical error messages to reduce noise
+            const errorGroups = new Map<string, { count: number; firstId: string }>();
             for (const tr of toolResults) {
+              if (tr.error) {
+                const existing = errorGroups.get(tr.error);
+                if (existing) {
+                  existing.count++;
+                } else {
+                  errorGroups.set(tr.error, { count: 1, firstId: tr.toolCallId });
+                }
+              }
+            }
+
+            for (const tr of toolResults) {
+              const errorGroup = tr.error ? errorGroups.get(tr.error) : undefined;
+              let content: string;
+              if (tr.error && errorGroup && errorGroup.count > 1) {
+                if (tr.toolCallId === errorGroup.firstId) {
+                  content = `${tr.error} (this error occurred ${errorGroup.count} times in this batch)`;
+                } else {
+                  content = `Same error as ${errorGroup.firstId}`;
+                }
+              } else {
+                content = tr.error ?? safeStringify(tr.result);
+              }
               openAIMessages.push({
                 role: 'tool',
                 tool_call_id: tr.toolCallId,
-                content: tr.error ?? safeStringify(tr.result),
+                content,
               });
             }
 
@@ -623,7 +671,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
             role: 'user',
             content:
               `FLOW VALIDATION FAILED: The following nodes are not reachable from ManualStart:\n${orphanList}\n\n` +
-              `You MUST connect these nodes before responding. Use connectSequentialNodes or connectBranchingNodes.`,
+              `You MUST connect these nodes before responding. Use connectChain to wire them in one call, or connectSequentialNodes/connectBranchingNodes for individual connections.`,
           });
 
           logger.logApiRequest(MODEL, openAIMessages.length, true);
