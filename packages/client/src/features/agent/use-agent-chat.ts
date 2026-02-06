@@ -2,7 +2,7 @@ import { eq } from '@tanstack/react-db';
 import { Ulid } from 'id128';
 import OpenAI from 'openai';
 import { useCallback, useRef, useState } from 'react';
-import { NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
+import { FlowItemState, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import { allToolSchemas } from './tool-schemas';
 import {
   EdgeCollectionSchema,
@@ -19,12 +19,13 @@ import { HttpCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/htt
 import { useApiCollection } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
-import { buildSystemPrompt, useFlowContext } from './context-builder';
+import { buildSystemPrompt, detectOrphanNodes, useFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
 import { executeToolCall, type Collections, type ToolExecutorContext } from './tool-executor';
 import {
   formatToolAsOpenAI,
   type AgentChatState,
+  type ExecutionSummary,
   type FlowContextData,
   type Message,
   type OpenAIMessage,
@@ -35,11 +36,11 @@ import {
 
 const openai = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: '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',
+  apiKey: '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',
   dangerouslyAllowBrowser: true,
 });
 
-const MODEL = 'minimax/minimax-m2.1';
+const MODEL = 'moonshotai/kimi-k2.5';
 
 const generateId = () => crypto.randomUUID();
 
@@ -58,6 +59,14 @@ const NODE_KIND_NAMES: Record<number, string> = {
   [NodeKind.FOR]: 'For',
   [NodeKind.FOR_EACH]: 'ForEach',
   [NodeKind.JS]: 'JavaScript',
+};
+
+const FLOW_ITEM_STATE_NAMES: Record<number, string> = {
+  [FlowItemState.UNSPECIFIED]: 'Idle',
+  [FlowItemState.RUNNING]: 'Running',
+  [FlowItemState.SUCCESS]: 'Success',
+  [FlowItemState.FAILURE]: 'Failure',
+  [FlowItemState.CANCELED]: 'Canceled',
 };
 
 /**
@@ -211,10 +220,65 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         executionCollection,
       };
 
+      const waitForFlowCompletion = async (): Promise<ExecutionSummary> => {
+        const POLL_INTERVAL = 500;
+        const MAX_WAIT = 30_000;
+        const INITIAL_DELAY = 500;
+        let elapsed = 0;
+
+        await new Promise((r) => setTimeout(r, INITIAL_DELAY));
+        elapsed += INITIAL_DELAY;
+
+        while (elapsed < MAX_WAIT) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+          elapsed += POLL_INTERVAL;
+
+          const freshNodes = await queryCollection((_) =>
+            _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
+          );
+
+          const hasRunning = freshNodes.some((n) => n.state === FlowItemState.RUNNING);
+          const hasTerminal = freshNodes.some(
+            (n) => n.state === FlowItemState.SUCCESS || n.state === FlowItemState.FAILURE,
+          );
+
+          if (!hasRunning && hasTerminal) break;
+        }
+
+        const freshNodes = await queryCollection((_) =>
+          _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
+        );
+
+        const executedNodes = freshNodes
+          .filter((n) => n.state === FlowItemState.SUCCESS || n.state === FlowItemState.FAILURE)
+          .map((n) => ({
+            id: Ulid.construct(n.nodeId).toCanonical(),
+            name: n.name,
+            state: FLOW_ITEM_STATE_NAMES[n.state] ?? 'Unknown',
+          }));
+
+        const neverReachedNodes = freshNodes
+          .filter(
+            (n) =>
+              n.kind !== NodeKind.MANUAL_START &&
+              n.state !== FlowItemState.SUCCESS &&
+              n.state !== FlowItemState.FAILURE &&
+              n.state !== FlowItemState.RUNNING,
+          )
+          .map((n) => ({
+            id: Ulid.construct(n.nodeId).toCanonical(),
+            name: n.name,
+            kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+          }));
+
+        return { executedNodes, neverReachedNodes };
+      };
+
       const toolContext: ToolExecutorContext = {
         collections,
         flowContext: currentFlowContext,
         transport,
+        waitForFlowCompletion,
       };
 
       const userMessage: Message = {
@@ -253,76 +317,136 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
         let assistantMessage = response.choices[0]?.message;
 
-        while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0) {
-          const toolCalls: ToolCall[] = assistantMessage.tool_calls.map((tc) => ({
-            id: tc.id,
-            name: tc.function.name,
-            arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>,
-          }));
+        let validationRetries = 0;
+        const MAX_VALIDATION_RETRIES = 2;
 
-          const toolMessage: Message = {
-            id: generateId(),
-            role: 'assistant',
-            content: assistantMessage.content ?? '',
-            toolCalls,
-            timestamp: Date.now(),
-          };
+        do {
+          // === Existing tool call loop ===
+          while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0) {
+            const toolCalls: ToolCall[] = assistantMessage.tool_calls.map((tc) => ({
+              id: tc.id,
+              name: tc.function.name,
+              arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>,
+            }));
 
-          setState((prev) => ({
-            ...prev,
-            messages: [...prev.messages, toolMessage],
-          }));
+            const toolMessage: Message = {
+              id: generateId(),
+              role: 'assistant',
+              content: assistantMessage.content ?? '',
+              toolCalls,
+              timestamp: Date.now(),
+            };
 
-          const toolResults = await Promise.all(
-            toolCalls.map((tc) => executeToolCall(tc, flowId, toolContext)),
-          );
+            setState((prev) => ({
+              ...prev,
+              messages: [...prev.messages, toolMessage],
+            }));
 
-          // Apply layout after mutations
-          const hadMutations = toolResults.some((tr: ToolResult) => tr.isMutation && !tr.error);
-          if (hadMutations) {
-            // Query fresh data directly from collections to avoid stale React context
-            await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
+            const toolResults = await Promise.all(
+              toolCalls.map((tc) => executeToolCall(tc, flowId, toolContext)),
+            );
+
+            // Apply layout after mutations
+            const hadMutations = toolResults.some((tr: ToolResult) => tr.isMutation && !tr.error);
+            if (hadMutations) {
+              // Query fresh data directly from collections to avoid stale React context
+              await applyLayoutToFlow(flowId, nodeCollection, edgeCollection);
+            }
+
+            const toolResultMessages: Message[] = toolResults.map((tr) => ({
+              id: generateId(),
+              role: 'tool' as const,
+              content: tr.error ?? safeStringify(tr.result),
+              toolCallId: tr.toolCallId,
+              timestamp: Date.now(),
+            }));
+
+            setState((prev) => ({
+              ...prev,
+              messages: [...prev.messages, ...toolResultMessages],
+            }));
+
+            openAIMessages.push({
+              role: 'assistant',
+              content: assistantMessage.content,
+              tool_calls: assistantMessage.tool_calls,
+            });
+
+            for (const tr of toolResults) {
+              openAIMessages.push({
+                role: 'tool',
+                tool_call_id: tr.toolCallId,
+                content: tr.error ?? safeStringify(tr.result),
+              });
+            }
+
+            response = await openai.chat.completions.create(
+              {
+                model: MODEL,
+                messages: openAIMessages,
+                tools,
+                tool_choice: 'auto',
+              },
+              { signal: abortController.signal },
+            );
+
+            assistantMessage = response.choices[0]?.message;
           }
 
-          const toolResultMessages: Message[] = toolResults.map((tr) => ({
-            id: generateId(),
-            role: 'tool' as const,
-            content: tr.error ?? safeStringify(tr.result),
-            toolCallId: tr.toolCallId,
-            timestamp: Date.now(),
-          }));
+          // === Post-execution validation: check for orphan nodes ===
+          if (validationRetries >= MAX_VALIDATION_RETRIES) break;
 
-          setState((prev) => ({
-            ...prev,
-            messages: [...prev.messages, ...toolResultMessages],
-          }));
+          const freshNodes = await queryCollection((_) =>
+            _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
+          );
+          const freshEdges = await queryCollection((_) =>
+            _.from({ edge: edgeCollection }).where((_) => eq(_.edge.flowId, flowId)),
+          );
 
-          openAIMessages.push({
-            role: 'assistant',
-            content: assistantMessage.content,
-            tool_calls: assistantMessage.tool_calls,
-          });
+          const nodeInfos = freshNodes
+            .filter((n) => n.nodeId != null)
+            .map((n) => ({
+              id: Ulid.construct(n.nodeId).toCanonical(),
+              kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+              name: n.name,
+            }));
+          const edgeInfos = freshEdges
+            .filter((e) => e.edgeId != null)
+            .map((e) => ({
+              sourceId: Ulid.construct(e.sourceId).toCanonical(),
+              targetId: Ulid.construct(e.targetId).toCanonical(),
+            }));
 
-          for (const tr of toolResults) {
+          const orphans = detectOrphanNodes(nodeInfos, edgeInfos);
+          if (orphans.length === 0) break;
+
+          validationRetries++;
+
+          const orphanList = orphans
+            .map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind})`)
+            .join('\n');
+
+          // Add the assistant's text response to messages before injecting validation
+          if (assistantMessage?.content) {
             openAIMessages.push({
-              role: 'tool',
-              tool_call_id: tr.toolCallId,
-              content: tr.error ?? safeStringify(tr.result),
+              role: 'assistant',
+              content: assistantMessage.content,
             });
           }
 
+          openAIMessages.push({
+            role: 'user',
+            content:
+              `FLOW VALIDATION FAILED: The following nodes are not reachable from ManualStart:\n${orphanList}\n\n` +
+              `You MUST connect these nodes before responding. Use connectSequentialNodes or connectBranchingNodes.`,
+          });
+
           response = await openai.chat.completions.create(
-            {
-              model: MODEL,
-              messages: openAIMessages,
-              tools,
-              tool_choice: 'auto',
-            },
+            { model: MODEL, messages: openAIMessages, tools, tool_choice: 'auto' },
             { signal: abortController.signal },
           );
-
           assistantMessage = response.choices[0]?.message;
-        }
+        } while (true);
 
         const finalMessage: Message = {
           id: generateId(),

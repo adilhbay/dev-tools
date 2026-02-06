@@ -209,13 +209,20 @@ FLOW ENDPOINTS (nodes ready for next connection):
 ${list}`;
 };
 
-const buildOrphanNodesSection = (context: FlowContextData): string => {
-  const startNode = context.nodes.find((n) => n.kind === 'ManualStart');
-  if (!startNode) return '';
+/**
+ * Detect orphan nodes that are not reachable from ManualStart via BFS.
+ * Reusable by both the system prompt builder and the post-execution validation loop.
+ */
+export const detectOrphanNodes = (
+  nodes: Pick<NodeInfo, 'id' | 'kind' | 'name'>[],
+  edges: Pick<EdgeInfo, 'sourceId' | 'targetId'>[],
+): Pick<NodeInfo, 'id' | 'kind' | 'name'>[] => {
+  const startNode = nodes.find((n) => n.kind === 'ManualStart');
+  if (!startNode) return [];
 
   // Build outgoing edge map
   const outgoing = new Map<string, string[]>();
-  for (const e of context.edges) {
+  for (const e of edges) {
     const list = outgoing.get(e.sourceId) ?? [];
     list.push(e.targetId);
     outgoing.set(e.sourceId, list);
@@ -231,8 +238,11 @@ const buildOrphanNodesSection = (context: FlowContextData): string => {
     queue.push(...(outgoing.get(nodeId) ?? []));
   }
 
-  // Find orphans
-  const orphans = context.nodes.filter((n) => n.kind !== 'ManualStart' && !reachable.has(n.id));
+  return nodes.filter((n) => n.kind !== 'ManualStart' && !reachable.has(n.id));
+};
+
+const buildOrphanNodesSection = (context: FlowContextData): string => {
+  const orphans = detectOrphanNodes(context.nodes, context.edges);
 
   if (orphans.length === 0) return '';
 
@@ -312,7 +322,8 @@ IMPORTANT RULES:
 9. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
 10. Node positions are automatically calculated - you do not need to specify positions when creating nodes.
 11. Check FLOW ENDPOINTS to see where new nodes should connect.
-12. ORPHAN NODES are mistakes - they need to be connected to the flow.`;
+12. ORPHAN NODES are mistakes - they need to be connected to the flow.
+13. After creating ANY node, you MUST immediately connect it with connectSequentialNodes or connectBranchingNodes before creating another node or responding.`;
 };
 
 const buildSelectedNodesSection = (context: FlowContextData): string => {

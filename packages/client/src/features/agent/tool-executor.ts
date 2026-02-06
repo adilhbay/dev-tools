@@ -3,7 +3,7 @@ import { Ulid } from 'id128';
 import { FlowService, HandleKind, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import { HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import { request } from '~/shared/api';
-import type { FlowContextData, ToolCall, ToolResult } from './types';
+import type { ExecutionSummary, FlowContextData, ToolCall, ToolResult } from './types';
 
 type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection>['utils'];
 type CollectionData = ReturnType<typeof import('~/shared/api').useApiCollection>;
@@ -69,6 +69,7 @@ interface ToolExecutorContext {
   collections: Collections;
   flowContext: FlowContextData;
   transport: Transport;
+  waitForFlowCompletion: () => Promise<ExecutionSummary>;
 }
 
 const parseUlid = (id: string): Uint8Array => Ulid.fromCanonical(id).bytes;
@@ -710,7 +711,18 @@ const executeToolInternal = async (
         method: FlowService.method.flowRun,
         transport,
       });
-      return { success: true, message: 'Flow execution started' };
+
+      const summary = await context.waitForFlowCompletion();
+
+      return {
+        success: true,
+        message: 'Flow execution completed',
+        executedNodes: summary.executedNodes,
+        neverReachedNodes: summary.neverReachedNodes,
+        warning: summary.neverReachedNodes.length > 0
+          ? `${summary.neverReachedNodes.length} node(s) were never reached during execution. This likely indicates a wiring problem.`
+          : undefined,
+      };
     }
 
     case 'flowStopRequest': {
