@@ -133,12 +133,20 @@ const applyLayoutToFlow = async (
 
 const clientToolSchemas: ToolSchema[] = [
   {
-    name: 'getSelectedNodes',
-    description: 'Get details of the nodes currently selected by the user on the canvas.',
+    name: 'inspectNode',
+    description:
+      'Inspect a node\'s full config and execution state. Returns type-specific config (HTTP: url/method/headers/params/body/assertions, JS: code, Condition: expression, For: iterations/condition, ForEach: path/condition) plus execution state/error. ' +
+      'Set includeOutput: true to also get execution input/output payloads (can be large).',
     parameters: {
       type: 'object',
-      properties: {},
-      required: [],
+      properties: {
+        nodeId: { type: 'string', description: 'The node ID to inspect' },
+        includeOutput: {
+          type: 'boolean',
+          description: 'Include execution input/output payloads (default: false). Only use when you need to see actual request/response data.',
+        },
+      },
+      required: ['nodeId'],
       additionalProperties: false,
     },
   },
@@ -153,163 +161,65 @@ const clientToolSchemas: ToolSchema[] = [
     },
   },
   {
-    name: 'updateHttpMethod',
-    description: 'Update the HTTP method of an existing HTTP request.',
+    name: 'configureHttp',
+    description:
+      'Declaratively configure an HTTP node. Provide desired state — only include fields to change. ' +
+      'Arrays (headers, searchParams, assertions) replace the entire existing set when provided. ' +
+      'Set body to null to clear it.',
     parameters: {
       type: 'object',
       properties: {
-        httpId: {
-          type: 'string',
-          description: 'The ID of the HTTP request to update (from the node\'s httpId field)',
-        },
+        nodeId: { type: 'string', description: 'The node ID (not httpId) of the HTTP node to configure' },
         method: {
           type: 'string',
-          description: 'The new HTTP method',
+          description: 'HTTP method',
           enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
         },
+        url: { type: 'string', description: 'Request URL' },
+        headers: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string' },
+              value: { type: 'string' },
+              enabled: { type: 'boolean' },
+            },
+            required: ['key'],
+          },
+          description: 'Replaces all existing headers',
+        },
+        searchParams: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string' },
+              value: { type: 'string' },
+              enabled: { type: 'boolean' },
+            },
+            required: ['key'],
+          },
+          description: 'Replaces all existing query parameters',
+        },
+        body: {
+          type: ['string', 'null'],
+          description: 'Raw body content (JSON string). Set to null to clear.',
+        },
+        assertions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              value: { type: 'string' },
+              enabled: { type: 'boolean' },
+            },
+            required: ['value'],
+          },
+          description: 'Replaces all existing assertions',
+        },
       },
-      required: ['httpId', 'method'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'addHttpSearchParam',
-    description: 'Add a query parameter to an HTTP request.',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpId: { type: 'string', description: 'The HTTP request ID' },
-        key: { type: 'string', description: 'Parameter name' },
-        value: { type: 'string', description: 'Parameter value' },
-        enabled: { type: 'boolean', description: 'Whether the parameter is active (default: true)' },
-        description: { type: 'string', description: 'Description of the parameter' },
-      },
-      required: ['httpId', 'key'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'updateHttpSearchParam',
-    description: 'Update an existing query parameter on an HTTP request.',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpSearchParamId: { type: 'string', description: 'The search param ID to update' },
-        key: { type: 'string', description: 'New parameter name' },
-        value: { type: 'string', description: 'New parameter value' },
-        enabled: { type: 'boolean', description: 'Whether the parameter is active' },
-        description: { type: 'string', description: 'New description' },
-      },
-      required: ['httpSearchParamId'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'deleteHttpSearchParam',
-    description: 'Delete a query parameter from an HTTP request.',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpSearchParamId: { type: 'string', description: 'The search param ID to delete' },
-      },
-      required: ['httpSearchParamId'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'addHttpHeader',
-    description: 'Add a header to an HTTP request.',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpId: { type: 'string', description: 'The HTTP request ID' },
-        key: { type: 'string', description: 'Header name (e.g. Content-Type, Authorization)' },
-        value: { type: 'string', description: 'Header value' },
-        enabled: { type: 'boolean', description: 'Whether the header is active (default: true)' },
-        description: { type: 'string', description: 'Description of the header' },
-      },
-      required: ['httpId', 'key'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'updateHttpHeader',
-    description: 'Update an existing header on an HTTP request.',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpHeaderId: { type: 'string', description: 'The header ID to update' },
-        key: { type: 'string', description: 'New header name' },
-        value: { type: 'string', description: 'New header value' },
-        enabled: { type: 'boolean', description: 'Whether the header is active' },
-        description: { type: 'string', description: 'New description' },
-      },
-      required: ['httpHeaderId'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'deleteHttpHeader',
-    description: 'Delete a header from an HTTP request.',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpHeaderId: { type: 'string', description: 'The header ID to delete' },
-      },
-      required: ['httpHeaderId'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'setHttpBody',
-    description: 'Set the raw body content of an HTTP request. The HTTP request must use POST, PUT, or PATCH method.',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpId: { type: 'string', description: 'The HTTP request ID' },
-        data: { type: 'string', description: 'The raw body content (e.g. JSON string)' },
-      },
-      required: ['httpId', 'data'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'addHttpAssert',
-    description: 'Add an assertion to an HTTP request. Assertions validate the response (e.g. status code, body content).',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpId: { type: 'string', description: 'The HTTP request ID' },
-        value: { type: 'string', description: 'Assertion expression (e.g. "response.status == 200")' },
-        enabled: { type: 'boolean', description: 'Whether the assertion is active (default: true)' },
-      },
-      required: ['httpId', 'value'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'updateHttpAssert',
-    description: 'Update an existing assertion on an HTTP request.',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpAssertId: { type: 'string', description: 'The assertion ID to update' },
-        value: { type: 'string', description: 'New assertion expression' },
-        enabled: { type: 'boolean', description: 'Whether the assertion is active' },
-      },
-      required: ['httpAssertId'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'deleteHttpAssert',
-    description: 'Delete an assertion from an HTTP request.',
-    parameters: {
-      type: 'object',
-      properties: {
-        httpAssertId: { type: 'string', description: 'The assertion ID to delete' },
-      },
-      required: ['httpAssertId'],
+      required: ['nodeId'],
       additionalProperties: false,
     },
   },
@@ -467,8 +377,13 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
       try {
         const systemPrompt = buildSystemPrompt(currentFlowContext);
+        const EXCLUDED_TOOL_NAMES = new Set([
+          'getFlowVariable', 'getEdge', 'getNode', 'getNodeHttp',
+          'getNodeFor', 'getNodeForEach', 'getNodeCondition', 'getNodeJs',
+          'connectSequentialNodes', 'connectBranchingNodes',
+        ]);
         const tools = [...allToolSchemas, ...clientToolSchemas]
-          .filter((s) => s.name !== 'connectSequentialNodes')
+          .filter((s) => !EXCLUDED_TOOL_NAMES.has(s.name))
           .map(formatToolAsOpenAI);
 
         logger.logSystemPrompt(systemPrompt, {

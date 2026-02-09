@@ -120,21 +120,10 @@ const MUTATION_TOOLS = new Set([
   'createForNode',
   'createForEachNode',
   'createHttpNode',
-  'connectSequentialNodes',
-  'connectBranchingNodes',
   'connectChain',
   'disconnectNodes',
   'deleteNode',
-  'addHttpSearchParam',
-  'updateHttpSearchParam',
-  'deleteHttpSearchParam',
-  'addHttpHeader',
-  'updateHttpHeader',
-  'deleteHttpHeader',
-  'setHttpBody',
-  'addHttpAssert',
-  'updateHttpAssert',
-  'deleteHttpAssert',
+  'configureHttp',
 ]);
 
 export const executeToolCall = async (
@@ -183,168 +172,280 @@ const executeToolInternal = async (
   } = collections;
 
   switch (name) {
-    // Read operations - return workflow data
-    case 'getWorkflow': {
-      return flowContext;
-    }
+    case 'inspectNode': {
+      const nodeIdStr = args.nodeId as string;
+      const includeOutput = (args.includeOutput as boolean) ?? false;
+      const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
+      if (!node) throw new Error(`Node not found: ${nodeIdStr}`);
 
-    case 'getAllNodes': {
-      return { nodes: flowContext.nodes };
-    }
+      const nodeIdBytes = parseUlid(nodeIdStr);
 
-    case 'getAllEdges': {
-      return { edges: flowContext.edges };
-    }
-
-    case 'getAllVariables': {
-      return { variables: flowContext.variables };
-    }
-
-    case 'getNode': {
-      const nodeId = args.nodeId as string;
-      const node = flowContext.nodes.find((n) => n.id === nodeId);
-      if (!node) throw new Error(`Node not found: ${nodeId}`);
-      return node;
-    }
-
-    case 'getEdge': {
-      const edgeId = args.edgeId as string;
-      const edge = flowContext.edges.find((e) => e.id === edgeId);
-      if (!edge) throw new Error(`Edge not found: ${edgeId}`);
-      return edge;
-    }
-
-    case 'getFlowVariable': {
-      const flowVariableId = args.flowVariableId as string;
-      const variable = flowContext.variables.find((v) => v.id === flowVariableId);
-      if (!variable) throw new Error(`Variable not found: ${flowVariableId}`);
-      return variable;
-    }
-
-    case 'getNodeExecutions': {
-      // Handle both nodeId (preferred) and nodeExecutionId (from generated schema)
-      let nodeId = args.nodeId as string | undefined;
-
-      // If nodeExecutionId is provided instead, find the node it belongs to
-      if (!nodeId && args.nodeExecutionId) {
-        const executionId = args.nodeExecutionId as string;
-        const execution = flowContext.executions.find((e) => e.id === executionId);
-        if (execution) {
-          nodeId = execution.nodeId;
-        } else {
-          return { executions: [], message: `Execution not found: ${executionId}` };
-        }
-      }
-
-      if (!nodeId) {
-        return { executions: [], message: 'No nodeId or nodeExecutionId provided' };
-      }
-
-      // Get executions for this node from the context
-      const executions = flowContext.executions
-        .filter((e) => e.nodeId === nodeId)
-        .sort((a, b) => {
-          // Sort by completion time descending (most recent first)
-          if (!a.completedAt && !b.completedAt) return 0;
-          if (!a.completedAt) return 1;
-          if (!b.completedAt) return -1;
-          return new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime();
-        });
-
-      if (executions.length === 0) {
-        return { executions: [], message: 'No execution history found for this node' };
-      }
-
-      return {
-        executions: executions.map((e) => ({
-          id: e.id,
-          name: e.name,
-          state: e.state,
-          error: e.error,
-          completedAt: e.completedAt,
-        })),
-      };
-    }
-
-    case 'getNodeOutput': {
-      const nodeId = args.nodeId as string;
-      const executions = flowContext.executions
-        .filter((e) => e.nodeId === nodeId && e.state !== 'Running')
-        .sort((a, b) => {
-          if (!a.completedAt && !b.completedAt) return 0;
-          if (!a.completedAt) return 1;
-          if (!b.completedAt) return -1;
-          return new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime();
-        });
-
-      if (executions.length === 0) {
-        const node = flowContext.nodes.find((n) => n.id === nodeId);
-        return { nodeId, nodeName: node?.name, message: 'No completed executions found for this node' };
-      }
-
-      const latest = executions[0]!;
-      const node = flowContext.nodes.find((n) => n.id === nodeId);
-
-      // Truncate large input/output to prevent massive responses
-      const MAX_OUTPUT_LENGTH = 10000;
-      const truncateData = (data: unknown): unknown => {
-        if (data == null) return data;
-        const str = typeof data === 'string' ? data : JSON.stringify(data);
-        if (str.length <= MAX_OUTPUT_LENGTH) {
-          return data;
-        }
-        return {
-          _truncated: true,
-          _originalLength: str.length,
-          preview: str.slice(0, MAX_OUTPUT_LENGTH) + '...',
-        };
+      // Base info (always returned)
+      const result: Record<string, unknown> = {
+        id: node.id,
+        name: node.name,
+        kind: node.kind,
+        state: node.state,
+        error: node.info ?? undefined,
       };
 
-      return {
-        nodeId,
-        nodeName: node?.name,
-        executionId: latest.id,
-        state: latest.state,
-        input: truncateData(latest.input),
-        output: truncateData(latest.output),
-      };
-    }
+      // Type-specific config
+      switch (node.kind) {
+        case 'HTTP': {
+          if (!node.httpId) break;
+          const httpIdBytes = parseUlid(node.httpId);
 
-    case 'getSelectedNodes': {
-      const selectedIds = flowContext.selectedNodeIds ?? [];
-      if (selectedIds.length === 0) {
-        return { selectedNodes: [], message: 'No nodes are currently selected.' };
-      }
-      const selectedNodes = selectedIds
-        .map((id) => flowContext.nodes.find((n) => n.id === id))
-        .filter((n): n is NonNullable<typeof n> => n != null)
-        .map((n) => ({ id: n.id, name: n.name, kind: n.kind, state: n.state }));
-      return { selectedNodes };
-    }
+          const [httpData] = await queryCollection((_) =>
+            _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
+          );
 
-    case 'getFailedNodes': {
-      const failedNodes = flowContext.nodes.filter((n) => n.state === 'Failure');
-      const failedExecutions = flowContext.executions.filter((e) => e.state === 'Failure');
+          const searchParams = await queryCollection((_) =>
+            _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
+          );
 
-      return {
-        failedNodes: failedNodes.map((n) => ({
-          id: n.id,
-          name: n.name,
-          kind: n.kind,
-          state: n.state,
-          info: n.info,
-        })),
-        failedExecutions: failedExecutions.map((e) => {
-          const node = flowContext.nodes.find((n) => n.id === e.nodeId);
-          return {
-            nodeId: e.nodeId,
-            nodeName: node?.name,
-            executionId: e.id,
-            error: e.error,
-            completedAt: e.completedAt,
+          const headers = await queryCollection((_) =>
+            _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
+          );
+
+          const bodyRaw = await queryCollection((_) =>
+            _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
+          );
+
+          const asserts = await queryCollection((_) =>
+            _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
+          );
+
+          const HTTP_METHOD_NAMES: Record<number, string> = {
+            0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
+            5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
           };
-        }),
-      };
+
+          result.httpId = node.httpId;
+          result.url = httpData?.url ?? '';
+          result.method = HTTP_METHOD_NAMES[httpData?.method ?? 0] ?? 'UNSPECIFIED';
+          result.headers = headers.map((h) => ({
+            id: h.httpHeaderId ? Ulid.construct(h.httpHeaderId).toCanonical() : undefined,
+            key: h.key,
+            value: h.value,
+            enabled: h.enabled,
+          }));
+          result.searchParams = searchParams.map((sp) => ({
+            id: sp.httpSearchParamId ? Ulid.construct(sp.httpSearchParamId).toCanonical() : undefined,
+            key: sp.key,
+            value: sp.value,
+            enabled: sp.enabled,
+          }));
+          result.body = bodyRaw.length > 0 ? bodyRaw[0]?.data : undefined;
+          result.assertions = asserts.map((a) => ({
+            id: a.httpAssertId ? Ulid.construct(a.httpAssertId).toCanonical() : undefined,
+            value: a.value,
+            enabled: a.enabled,
+          }));
+          break;
+        }
+        case 'JavaScript': {
+          const [jsData] = await queryCollection((_) =>
+            _.from({ js: jsCollection }).where((_) => eq(_.js.nodeId, nodeIdBytes)).findOne(),
+          );
+          result.code = jsData?.code ?? '';
+          break;
+        }
+        case 'Condition': {
+          const [condData] = await queryCollection((_) =>
+            _.from({ cond: conditionCollection }).where((_) => eq(_.cond.nodeId, nodeIdBytes)).findOne(),
+          );
+          result.condition = condData?.condition ?? '';
+          break;
+        }
+        case 'For': {
+          const [forData] = await queryCollection((_) =>
+            _.from({ f: forCollection }).where((_) => eq(_.f.nodeId, nodeIdBytes)).findOne(),
+          );
+          result.iterations = forData?.iterations;
+          result.condition = forData?.condition ?? '';
+          result.errorHandling = forData?.errorHandling === 1 ? 'break' : 'continue';
+          break;
+        }
+        case 'ForEach': {
+          const [feData] = await queryCollection((_) =>
+            _.from({ fe: forEachCollection }).where((_) => eq(_.fe.nodeId, nodeIdBytes)).findOne(),
+          );
+          result.path = feData?.path ?? '';
+          result.condition = feData?.condition ?? '';
+          result.errorHandling = feData?.errorHandling === 1 ? 'break' : 'continue';
+          break;
+        }
+      }
+
+      // Query execution data fresh from collection (not cached flowContext)
+      const allExecs = await queryCollection((_) =>
+        _.from({ exec: executionCollection }),
+      );
+      const nodeExecs = allExecs
+        .filter((e) => e.nodeId != null && Ulid.construct(e.nodeId).toCanonical() === nodeIdStr)
+        .sort((a, b) => {
+          if (!a.completedAt && !b.completedAt) return 0;
+          if (!a.completedAt) return 1;
+          if (!b.completedAt) return -1;
+          return Number(b.completedAt - a.completedAt);
+        });
+
+      if (nodeExecs.length > 0) {
+        const latest = nodeExecs[0]!;
+        result.execution = {
+          state: FLOW_ITEM_STATE_NAMES[latest.state] ?? 'Unknown',
+          error: latest.error ?? undefined,
+          completedAt: latest.completedAt instanceof Date
+            ? latest.completedAt.toISOString()
+            : latest.completedAt ? String(latest.completedAt) : undefined,
+        };
+
+        if (includeOutput) {
+          const MAX_OUTPUT_LENGTH = 10000;
+          const truncateData = (data: unknown): unknown => {
+            if (data == null) return data;
+            const str = typeof data === 'string' ? data : JSON.stringify(data);
+            if (str.length <= MAX_OUTPUT_LENGTH) return data;
+            return {
+              _truncated: true,
+              _originalLength: str.length,
+              preview: str.slice(0, MAX_OUTPUT_LENGTH) + '...',
+            };
+          };
+          (result.execution as Record<string, unknown>).input = truncateData(latest.input);
+          (result.execution as Record<string, unknown>).output = truncateData(latest.output);
+        }
+      }
+
+      return result;
+    }
+
+    case 'configureHttp': {
+      const nodeIdStr = args.nodeId as string;
+      const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
+      if (!node) throw new Error(`Node not found: ${nodeIdStr}`);
+      if (node.kind !== 'HTTP') throw new Error(`Node "${node.name}" is not an HTTP node (it's ${node.kind})`);
+      if (!node.httpId) throw new Error(`HTTP node "${node.name}" has no associated HTTP request`);
+
+      const httpIdBytes = parseUlid(node.httpId);
+
+      // Update method/url if provided
+      const httpUpdates: Record<string, unknown> = { httpId: httpIdBytes };
+      let hasHttpUpdates = false;
+
+      if (args.method !== undefined) {
+        const methodStr = (args.method as string).toUpperCase();
+        const method = HTTP_METHOD_MAP[methodStr];
+        if (method === undefined) {
+          throw new Error(`Invalid HTTP method: "${args.method}". Valid: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`);
+        }
+        httpUpdates.method = method;
+        hasHttpUpdates = true;
+      }
+
+      if (args.url !== undefined) {
+        httpUpdates.url = args.url;
+        hasHttpUpdates = true;
+      }
+
+      if (hasHttpUpdates) {
+        httpCollection.utils.update(httpUpdates);
+      }
+
+      // Replace headers if provided (delete all, then insert)
+      if (args.headers !== undefined) {
+        const existingHeaders = await queryCollection((_) =>
+          _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
+        );
+        for (const h of existingHeaders) {
+          if (h.httpHeaderId) httpHeaderCollection.utils.delete({ httpHeaderId: h.httpHeaderId });
+        }
+        const newHeaders = args.headers as { key: string; value?: string; enabled?: boolean; description?: string }[];
+        for (let i = 0; i < newHeaders.length; i++) {
+          const h = newHeaders[i]!;
+          await httpHeaderCollection.utils.insert({
+            httpHeaderId: Ulid.generate().bytes,
+            httpId: httpIdBytes,
+            key: h.key,
+            value: h.value ?? '',
+            enabled: h.enabled ?? true,
+            description: h.description ?? '',
+            order: i,
+          });
+        }
+      }
+
+      // Replace search params if provided
+      if (args.searchParams !== undefined) {
+        const existingParams = await queryCollection((_) =>
+          _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
+        );
+        for (const sp of existingParams) {
+          if (sp.httpSearchParamId) httpSearchParamCollection.utils.delete({ httpSearchParamId: sp.httpSearchParamId });
+        }
+        const newParams = args.searchParams as { key: string; value?: string; enabled?: boolean; description?: string }[];
+        for (let i = 0; i < newParams.length; i++) {
+          const sp = newParams[i]!;
+          await httpSearchParamCollection.utils.insert({
+            httpSearchParamId: Ulid.generate().bytes,
+            httpId: httpIdBytes,
+            key: sp.key,
+            value: sp.value ?? '',
+            enabled: sp.enabled ?? true,
+            description: sp.description ?? '',
+            order: i,
+          });
+        }
+      }
+
+      // Set or clear body
+      if (args.body !== undefined) {
+        const body = args.body as string | null;
+        if (body === null) {
+          // Clear body
+          httpCollection.utils.update({ httpId: httpIdBytes, bodyKind: HttpBodyKind.UNSPECIFIED });
+          const existingBody = await queryCollection((_) =>
+            _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
+          );
+          if (existingBody.length > 0) {
+            httpBodyRawCollection.utils.update({ httpId: httpIdBytes, data: '' });
+          }
+        } else {
+          // Set body
+          httpCollection.utils.update({ httpId: httpIdBytes, bodyKind: HttpBodyKind.RAW });
+          const existingBody = await queryCollection((_) =>
+            _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
+          );
+          if (existingBody.length > 0) {
+            httpBodyRawCollection.utils.update({ httpId: httpIdBytes, data: body });
+          } else {
+            await httpBodyRawCollection.utils.insert({ httpId: httpIdBytes, data: body });
+          }
+        }
+      }
+
+      // Replace assertions if provided
+      if (args.assertions !== undefined) {
+        const existingAsserts = await queryCollection((_) =>
+          _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
+        );
+        for (const a of existingAsserts) {
+          if (a.httpAssertId) httpAssertCollection.utils.delete({ httpAssertId: a.httpAssertId });
+        }
+        const newAsserts = args.assertions as { value: string; enabled?: boolean }[];
+        for (let i = 0; i < newAsserts.length; i++) {
+          const a = newAsserts[i]!;
+          await httpAssertCollection.utils.insert({
+            httpAssertId: Ulid.generate().bytes,
+            httpId: httpIdBytes,
+            value: a.value,
+            enabled: a.enabled ?? true,
+            order: i,
+          });
+        }
+      }
+
+      return { success: true };
     }
 
     case 'createJsNode': {
@@ -583,112 +684,6 @@ const executeToolInternal = async (
       return { nodeId: Ulid.construct(nodeId).toCanonical(), httpId: httpIdStr, name: nodeName };
     }
 
-    case 'connectSequentialNodes': {
-      const sourceIdStr = args.sourceId as string;
-      const targetIdStr = args.targetId as string;
-
-      // Validation: Only validate if we can find the node (it may have just been created)
-      const sourceNode = flowContext.nodes.find((n) => n.id === sourceIdStr);
-      if (sourceNode) {
-        // Validation: Check source is a sequential node
-        const isSequentialNode = ['ManualStart', 'JavaScript', 'HTTP'].includes(sourceNode.kind);
-        if (!isSequentialNode) {
-          throw new Error(
-            `Node "${sourceNode.name}" is a ${sourceNode.kind} node. ` +
-              `Use connectBranchingNodes instead (with sourceHandle: 'then', 'else', or 'loop').`,
-          );
-        }
-
-        // Validation: Prevent duplicate edges (same source → same target)
-        const existingEdges = await queryCollection((_) =>
-          _.from({ e: edgeCollection }).where((_) => eq(_.e.sourceId, parseUlid(sourceIdStr))),
-        );
-        const duplicateEdge = existingEdges.find(
-          (e) => Ulid.construct(e.targetId).toCanonical() === targetIdStr,
-        );
-        if (duplicateEdge) {
-          throw new Error(
-            `Node "${sourceNode.name}" already has a connection to "${targetIdStr}". ` +
-              `This exact edge already exists.`,
-          );
-        }
-      }
-
-      const edgeId = Ulid.generate().bytes;
-      const sourceId = parseUlid(sourceIdStr);
-      const targetId = parseUlid(targetIdStr);
-
-      // Await to ensure server persistence before returning
-      await edgeCollection.utils.insert({
-        edgeId,
-        flowId,
-        sourceId,
-        targetId,
-      });
-
-      return { edgeId: Ulid.construct(edgeId).toCanonical() };
-    }
-
-    case 'connectBranchingNodes': {
-      const sourceIdStr = args.sourceId as string;
-      const targetIdStr = args.targetId as string;
-      const handleStr = args.sourceHandle as string;
-
-      // Validation: Only validate if we can find the node (it may have just been created)
-      const sourceNode = flowContext.nodes.find((n) => n.id === sourceIdStr);
-      if (sourceNode) {
-        // Validation: Check source is a branching node
-        const isBranchingNode = ['Condition', 'For', 'ForEach'].includes(sourceNode.kind);
-        if (!isBranchingNode) {
-          throw new Error(
-            `Node "${sourceNode.name}" is a ${sourceNode.kind} node. ` +
-              `Use connectSequentialNodes instead.`,
-          );
-        }
-
-        // Validation: Check handle is valid for node type
-        const validHandles = sourceNode.kind === 'Condition' ? ['then', 'else'] : ['then', 'loop'];
-        if (!validHandles.includes(handleStr)) {
-          throw new Error(
-            `Invalid sourceHandle "${handleStr}" for ${sourceNode.kind} node. ` +
-              `Valid handles: ${validHandles.join(', ')}.`,
-          );
-        }
-
-        // Validation: Check handle isn't already connected (live query)
-        const existingEdgesForHandle = await queryCollection((_) =>
-          _.from({ e: edgeCollection }).where((_) => eq(_.e.sourceId, parseUlid(sourceIdStr))),
-        );
-        const existingEdge = existingEdgesForHandle.find(
-          (e) => e.sourceHandle === HANDLE_KIND_MAP[handleStr],
-        );
-        if (existingEdge) {
-          const existingTargetId = Ulid.construct(existingEdge.targetId).toCanonical();
-          const existingTarget = flowContext.nodes.find((n) => n.id === existingTargetId);
-          throw new Error(
-            `The "${handleStr}" handle of "${sourceNode.name}" is already connected to "${existingTarget?.name ?? existingTargetId}". ` +
-              `Use disconnectNodes first to reconnect.`,
-          );
-        }
-      }
-
-      const edgeId = Ulid.generate().bytes;
-      const sourceId = parseUlid(sourceIdStr);
-      const targetId = parseUlid(targetIdStr);
-      const sourceHandle = HANDLE_KIND_MAP[handleStr] ?? HandleKind.THEN;
-
-      // Await to ensure server persistence before returning
-      await edgeCollection.utils.insert({
-        edgeId,
-        flowId,
-        sourceId,
-        targetId,
-        sourceHandle,
-      });
-
-      return { edgeId: Ulid.construct(edgeId).toCanonical() };
-    }
-
     case 'connectChain': {
       const nodeIds = args.nodeIds as (string | string[])[];
       const handleOverride = args.sourceHandle as string | undefined;
@@ -891,218 +886,6 @@ const executeToolInternal = async (
       if (args.order !== undefined) updates.order = args.order;
 
       variableCollection.utils.update(updates);
-      return { success: true };
-    }
-
-    case 'updateHttpMethod': {
-      const httpId = parseUlid(args.httpId as string);
-      const methodStr = (args.method as string).toUpperCase();
-      const method = HTTP_METHOD_MAP[methodStr];
-
-      if (method === undefined) {
-        throw new Error(`Invalid HTTP method: ${args.method}. Valid methods are: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`);
-      }
-
-      httpCollection.utils.update({
-        httpId,
-        method,
-      });
-
-      return { success: true, method: methodStr };
-    }
-
-    case 'getNodeHttp': {
-      const nodeIdStr = args.nodeId as string;
-      const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
-      if (!node) throw new Error(`Node not found: ${nodeIdStr}`);
-      if (node.kind !== 'HTTP') throw new Error(`Node "${node.name}" is not an HTTP node (it's ${node.kind})`);
-      if (!node.httpId) throw new Error(`HTTP node "${node.name}" has no associated HTTP request`);
-
-      const httpIdBytes = parseUlid(node.httpId);
-
-      // Query HTTP details from collections
-      const [httpData] = await queryCollection((_) =>
-        _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
-      );
-
-      const searchParams = await queryCollection((_) =>
-        _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
-      );
-
-      const headers = await queryCollection((_) =>
-        _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
-      );
-
-      const bodyRaw = await queryCollection((_) =>
-        _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
-      );
-
-      const asserts = await queryCollection((_) =>
-        _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
-      );
-
-      const HTTP_METHOD_NAMES: Record<number, string> = {
-        0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
-        5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
-      };
-      const HTTP_BODY_KIND_NAMES: Record<number, string> = {
-        0: 'none', 1: 'form_data', 2: 'url_encoded', 3: 'raw',
-      };
-
-      return {
-        httpId: node.httpId,
-        name: httpData?.name ?? node.name,
-        url: httpData?.url ?? '',
-        method: HTTP_METHOD_NAMES[httpData?.method ?? 0] ?? 'UNSPECIFIED',
-        bodyKind: HTTP_BODY_KIND_NAMES[httpData?.bodyKind ?? 0] ?? 'none',
-        searchParams: searchParams.map((sp) => ({
-          id: sp.httpSearchParamId ? Ulid.construct(sp.httpSearchParamId).toCanonical() : undefined,
-          key: sp.key,
-          value: sp.value,
-          enabled: sp.enabled,
-          description: sp.description,
-        })),
-        headers: headers.map((h) => ({
-          id: h.httpHeaderId ? Ulid.construct(h.httpHeaderId).toCanonical() : undefined,
-          key: h.key,
-          value: h.value,
-          enabled: h.enabled,
-          description: h.description,
-        })),
-        body: bodyRaw.length > 0 ? bodyRaw[0]?.data : undefined,
-        assertions: asserts.map((a) => ({
-          id: a.httpAssertId ? Ulid.construct(a.httpAssertId).toCanonical() : undefined,
-          value: a.value,
-          enabled: a.enabled,
-        })),
-      };
-    }
-
-    case 'addHttpSearchParam': {
-      const httpId = parseUlid(args.httpId as string);
-      const httpSearchParamId = Ulid.generate().bytes;
-
-      await httpSearchParamCollection.utils.insert({
-        httpSearchParamId,
-        httpId,
-        key: args.key as string,
-        value: (args.value as string) ?? '',
-        enabled: (args.enabled as boolean) ?? true,
-        description: (args.description as string) ?? '',
-        order: (args.order as number) ?? 0,
-      });
-
-      return { httpSearchParamId: Ulid.construct(httpSearchParamId).toCanonical() };
-    }
-
-    case 'updateHttpSearchParam': {
-      const httpSearchParamId = parseUlid(args.httpSearchParamId as string);
-      const updates: Record<string, unknown> = { httpSearchParamId };
-
-      if (args.key !== undefined) updates.key = args.key;
-      if (args.value !== undefined) updates.value = args.value;
-      if (args.enabled !== undefined) updates.enabled = args.enabled;
-      if (args.description !== undefined) updates.description = args.description;
-
-      httpSearchParamCollection.utils.update(updates);
-      return { success: true };
-    }
-
-    case 'deleteHttpSearchParam': {
-      const httpSearchParamId = parseUlid(args.httpSearchParamId as string);
-      httpSearchParamCollection.utils.delete({ httpSearchParamId });
-      return { success: true };
-    }
-
-    case 'addHttpHeader': {
-      const httpId = parseUlid(args.httpId as string);
-      const httpHeaderId = Ulid.generate().bytes;
-
-      await httpHeaderCollection.utils.insert({
-        httpHeaderId,
-        httpId,
-        key: args.key as string,
-        value: (args.value as string) ?? '',
-        enabled: (args.enabled as boolean) ?? true,
-        description: (args.description as string) ?? '',
-        order: (args.order as number) ?? 0,
-      });
-
-      return { httpHeaderId: Ulid.construct(httpHeaderId).toCanonical() };
-    }
-
-    case 'updateHttpHeader': {
-      const httpHeaderId = parseUlid(args.httpHeaderId as string);
-      const updates: Record<string, unknown> = { httpHeaderId };
-
-      if (args.key !== undefined) updates.key = args.key;
-      if (args.value !== undefined) updates.value = args.value;
-      if (args.enabled !== undefined) updates.enabled = args.enabled;
-      if (args.description !== undefined) updates.description = args.description;
-
-      httpHeaderCollection.utils.update(updates);
-      return { success: true };
-    }
-
-    case 'deleteHttpHeader': {
-      const httpHeaderId = parseUlid(args.httpHeaderId as string);
-      httpHeaderCollection.utils.delete({ httpHeaderId });
-      return { success: true };
-    }
-
-    case 'setHttpBody': {
-      const httpId = parseUlid(args.httpId as string);
-      const data = (args.data as string) ?? '';
-
-      // Update the HTTP request's bodyKind to Raw
-      httpCollection.utils.update({
-        httpId,
-        bodyKind: HttpBodyKind.RAW,
-      });
-
-      // Check if body record exists, then insert or update
-      const existingBody = await queryCollection((_) =>
-        _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpId)),
-      );
-
-      if (existingBody.length > 0) {
-        httpBodyRawCollection.utils.update({ httpId, data });
-      } else {
-        await httpBodyRawCollection.utils.insert({ httpId, data });
-      }
-
-      return { success: true };
-    }
-
-    case 'addHttpAssert': {
-      const httpId = parseUlid(args.httpId as string);
-      const httpAssertId = Ulid.generate().bytes;
-
-      await httpAssertCollection.utils.insert({
-        httpAssertId,
-        httpId,
-        value: args.value as string,
-        enabled: (args.enabled as boolean) ?? true,
-        order: (args.order as number) ?? 0,
-      });
-
-      return { httpAssertId: Ulid.construct(httpAssertId).toCanonical() };
-    }
-
-    case 'updateHttpAssert': {
-      const httpAssertId = parseUlid(args.httpAssertId as string);
-      const updates: Record<string, unknown> = { httpAssertId };
-
-      if (args.value !== undefined) updates.value = args.value;
-      if (args.enabled !== undefined) updates.enabled = args.enabled;
-
-      httpAssertCollection.utils.update(updates);
-      return { success: true };
-    }
-
-    case 'deleteHttpAssert': {
-      const httpAssertId = parseUlid(args.httpAssertId as string);
-      httpAssertCollection.utils.delete({ httpAssertId });
       return { success: true };
     }
 

@@ -457,7 +457,7 @@ const buildXmlFlowBlock = (context: FlowContextData): string => {
   if (enabledVars.length > 0) {
     lines.push('  <variables>');
     for (const v of enabledVars) {
-      lines.push(`    <var key="${escapeXml(v.key)}" value="${escapeXml(v.value)}"/>`);
+      lines.push(`    <var id="${escapeXml(v.id)}" key="${escapeXml(v.key)}" value="${escapeXml(v.value)}"/>`);
     }
     lines.push('  </variables>');
   }
@@ -527,10 +527,10 @@ IMPORTANT RULES:
 3. Node outputs are stored by node name. In JS code use ctx["NodeName"]. HTTP nodes output { response: { status, body }, request }. ForEach nodes expose { item, key } during iteration.
 4. A node can connect to multiple targets for parallel execution (all branches run and complete before downstream nodes continue). To run steps sequentially, chain them: Start → A → B → C. Only create Condition nodes when "then" and "else" lead to DIFFERENT destinations — if both go to the same node, skip the Condition.
 5. ALWAYS use connectChain for ALL connections — sequential, branching (auto-applies "then"), fan-out, and fan-in. Examples: ["A","B"] single, ["A","B","C"] chain, ["A",["B","C"],"D"] fan-out/fan-in, [["B","C"],"D"] fan-in only. Pass sourceHandle: "else" or "loop" for non-default branches. Use edge id attributes from \`<edge>\` elements when calling disconnectNodes.
-6. Only use connectBranchingNodes when you need an "else" or "loop" handle on a single edge. NEVER use it for "then" — connectChain handles that automatically.
-7. Always confirm what you did after executing tools.
-8. If a node has state="Failure", use getNodeExecutions to get detailed error information.
-9. Use getNodeOutput to inspect the input/output data of a node's most recent execution.
+6. Always confirm what you did after executing tools.
+7. If a node has state="Failure", use inspectNode to get detailed error and config information.
+8. Use inspectNode with includeOutput: true to see the input/output data of a node's most recent execution.
+9. Use configureHttp to set method, url, headers, searchParams, body, and assertions on an HTTP node in a single call. Arrays replace the full existing set.
 10. Nodes with selected="true" are currently selected on canvas — prefer operating on those nodes unless the user specifies otherwise.
 11. Nodes with endpoint="true" are the last in their chain — new nodes connect there.
 12. Nodes with orphan="true" are mistakes — they must be connected to the flow via connectChain.
