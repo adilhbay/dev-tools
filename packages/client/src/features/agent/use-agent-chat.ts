@@ -529,10 +529,12 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
               logger.logToolCallStart(tc.id, tc.name, tc.arguments);
             }
 
-            const toolCallTimers = toolCalls.map(() => performance.now());
-            const toolResults = await Promise.all(
-              toolCalls.map((tc) => executeToolCall(tc, flowId, toolContext)),
-            );
+            const toolCallTimers: number[] = [];
+            const toolResults: ToolResult[] = [];
+            for (const tc of toolCalls) {
+              toolCallTimers.push(performance.now());
+              toolResults.push(await executeToolCall(tc, flowId, toolContext));
+            }
 
             for (let i = 0; i < toolResults.length; i++) {
               const tr = toolResults[i]!;
