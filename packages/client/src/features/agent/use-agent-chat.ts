@@ -26,7 +26,7 @@ import {
 import { useApiCollection } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
-import { buildCompactStateSummary, buildSystemPrompt, detectDeadEndNodes, detectOrphanNodes, refreshFlowContext, useFlowContext } from './context-builder';
+import { buildCompactStateSummary, buildSystemPrompt, buildXmlValidationMessage, detectDeadEndNodes, detectOrphanNodes, refreshFlowContext, useFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
 import { executeToolCall, type Collections, type ToolExecutorContext } from './tool-executor';
 import {
@@ -43,7 +43,7 @@ import { AgentLogger } from './agent-logger';
 
 const openai = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: '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',
+  apiKey: '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',
   dangerouslyAllowBrowser: true,
 });
 
@@ -672,23 +672,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
           validationRetries++;
 
-          let validationContent: string;
-          if (orphans.length > 0) {
-            const orphanList = orphans
-              .map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind})`)
-              .join('\n');
-            validationContent =
-              `FLOW VALIDATION FAILED: The following nodes are not reachable from ManualStart:\n${orphanList}\n\n` +
-              `You MUST connect these nodes before responding. Use connectChain to wire them in one call.`;
-          } else {
-            const deadEndList = deadEnds
-              .map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind})`)
-              .join('\n');
-            validationContent =
-              `STRUCTURAL WARNING: ${deadEnds.length} nodes are dead-ends (connected but have no downstream connections):\n${deadEndList}\n\n` +
-              `This typically means parallel branches are missing fan-in connections to a downstream node. ` +
-              `Use connectChain with a nested array for fan-in: [["NodeA","NodeB","NodeC"],"TargetNode"] connects all three to TargetNode.`;
-          }
+          const validationContent = buildXmlValidationMessage(orphans, deadEnds);
 
           // Add the assistant's text response to messages before injecting validation
           if (assistantMessage?.content) {

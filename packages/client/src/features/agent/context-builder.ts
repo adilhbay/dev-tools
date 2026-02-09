@@ -43,6 +43,10 @@ const HTTP_METHOD_NAMES: Record<number, string> = {
   [HttpMethod.OPTIONS]: 'OPTIONS',
 };
 
+const escapeXml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+   .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
 export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
   const nodeCollection = useApiCollection(NodeCollectionSchema);
   const edgeCollection = useApiCollection(EdgeCollectionSchema);
@@ -312,31 +316,6 @@ export const refreshFlowContext = async (
   };
 };
 
-const buildFlowEndpointsSection = (context: FlowContextData): string => {
-  // Build outgoing edge map
-  const outgoing = new Map<string, string[]>();
-  for (const e of context.edges) {
-    const list = outgoing.get(e.sourceId) ?? [];
-    list.push(e.targetId);
-    outgoing.set(e.sourceId, list);
-  }
-
-  // Find sequential nodes with no outgoing edges
-  const endpoints = context.nodes.filter((n) => {
-    const isSequential = ['ManualStart', 'JavaScript', 'HTTP'].includes(n.kind);
-    const hasOutgoing = (outgoing.get(n.id) ?? []).length > 0;
-    return isSequential && !hasOutgoing;
-  });
-
-  if (endpoints.length === 0) return '';
-
-  const list = endpoints.map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind})`).join('\n');
-
-  return `
-
-FLOW ENDPOINTS (nodes ready for next connection):
-${list}`;
-};
 
 /**
  * Detect orphan nodes that are not reachable from ManualStart via BFS.
@@ -400,133 +379,162 @@ export const detectDeadEndNodes = (
   return [];
 };
 
-const buildOrphanNodesSection = (context: FlowContextData): string => {
-  const orphans = detectOrphanNodes(context.nodes, context.edges);
+const buildXmlFlowBlock = (context: FlowContextData): string => {
+  // 1. Build outgoing edge map: sourceId -> EdgeInfo[]
+  const outgoingEdges = new Map<string, EdgeInfo[]>();
+  for (const e of context.edges) {
+    const list = outgoingEdges.get(e.sourceId) ?? [];
+    list.push(e);
+    outgoingEdges.set(e.sourceId, list);
+  }
 
-  if (orphans.length === 0) return '';
+  // 2. Build node-name lookup
+  const nodeNameMap = new Map<string, string>();
+  for (const n of context.nodes) {
+    nodeNameMap.set(n.id, n.name);
+  }
 
-  const list = orphans
-    .map((n) => `  - ${n.name} (ID: ${n.id}, Type: ${n.kind}) - NOT CONNECTED`)
-    .join('\n');
+  // 3. Compute orphan set
+  const orphanNodes = detectOrphanNodes(context.nodes, context.edges);
+  const orphanSet = new Set(orphanNodes.map((n) => n.id));
 
-  return `
+  // 4. Compute endpoint set (sequential nodes with no outgoing edges)
+  const endpointSet = new Set(
+    context.nodes
+      .filter((n) => ['ManualStart', 'JavaScript', 'HTTP'].includes(n.kind) && !outgoingEdges.has(n.id))
+      .map((n) => n.id),
+  );
 
-ORPHAN NODES (not reachable from start):
-${list}`;
+  // 5. Compute selected set
+  const selectedSet = new Set(context.selectedNodeIds ?? []);
+
+  // 6. Build execution error map: nodeId -> error string
+  const errorMap = new Map<string, string>();
+  for (const exec of context.executions) {
+    if (exec.state === 'Failure' && exec.error) {
+      errorMap.set(exec.nodeId, exec.error);
+    }
+  }
+
+  // 7. Build XML nodes
+  const lines: string[] = ['<flow>'];
+
+  for (const node of context.nodes) {
+    const attrs: string[] = [
+      `id="${escapeXml(node.id)}"`,
+      `name="${escapeXml(node.name)}"`,
+      `type="${escapeXml(node.kind)}"`,
+    ];
+
+    if (node.httpMethod) attrs.push(`method="${escapeXml(node.httpMethod)}"`);
+    if (node.state !== 'Idle') attrs.push(`state="${escapeXml(node.state)}"`);
+
+    // Prefer execution error over node.info
+    const errorDetail = errorMap.get(node.id) ?? node.info;
+    if (errorDetail) attrs.push(`error="${escapeXml(errorDetail)}"`);
+
+    if (selectedSet.has(node.id)) attrs.push('selected="true"');
+    if (orphanSet.has(node.id)) attrs.push('orphan="true"');
+    if (endpointSet.has(node.id)) attrs.push('endpoint="true"');
+
+    const edges = outgoingEdges.get(node.id);
+    if (!edges || edges.length === 0) {
+      lines.push(`  <node ${attrs.join(' ')}/>`);
+    } else {
+      lines.push(`  <node ${attrs.join(' ')}>`);
+      for (const edge of edges) {
+        const targetName = nodeNameMap.get(edge.targetId) ?? edge.targetId;
+        const edgeAttrs = [`id="${escapeXml(edge.id)}"`, `target="${escapeXml(targetName)}"`];
+        if (edge.sourceHandle) edgeAttrs.push(`handle="${escapeXml(edge.sourceHandle)}"`);
+        lines.push(`    <edge ${edgeAttrs.join(' ')}/>`);
+      }
+      lines.push('  </node>');
+    }
+  }
+
+  // 8. Variables block (only enabled, skip if empty)
+  const enabledVars = context.variables.filter((v) => v.enabled);
+  if (enabledVars.length > 0) {
+    lines.push('  <variables>');
+    for (const v of enabledVars) {
+      lines.push(`    <var key="${escapeXml(v.key)}" value="${escapeXml(v.value)}"/>`);
+    }
+    lines.push('  </variables>');
+  }
+
+  lines.push('</flow>');
+  return lines.join('\n');
 };
 
-export const buildCompactStateSummary = (context: FlowContextData): string => {
+const buildXmlCompactSummary = (context: FlowContextData): string => {
   const orphans = detectOrphanNodes(context.nodes, context.edges);
 
-  // Find endpoint nodes (sequential nodes with no outgoing edges)
+  // Find endpoint nodes
   const outgoing = new Set(context.edges.map((e) => e.sourceId));
   const endpoints = context.nodes.filter(
     (n) => ['ManualStart', 'JavaScript', 'HTTP'].includes(n.kind) && !outgoing.has(n.id),
   );
 
-  let summary = `[Flow updated: ${context.nodes.length} nodes, ${context.edges.length} edges]`;
+  const lines: string[] = [`<flow-update nodes="${context.nodes.length}" edges="${context.edges.length}">`];
 
-  if (endpoints.length > 0) {
-    const endpointNames = endpoints.map((n) => `${n.name} (${n.id})`).join(', ');
-    summary += `\nEndpoints (ready for connection): ${endpointNames}`;
+  for (const ep of endpoints) {
+    lines.push(`  <endpoint id="${escapeXml(ep.id)}" name="${escapeXml(ep.name)}"/>`);
+  }
+
+  for (const o of orphans) {
+    lines.push(`  <orphan id="${escapeXml(o.id)}" name="${escapeXml(o.name)}"/>`);
   }
 
   if (endpoints.length > 5) {
-    summary += `\nWARNING: ${endpoints.length} dead-end nodes detected — ensure all parallel branches fan-in to their downstream node using connectChain.`;
+    lines.push(`  <!-- WARNING: ${endpoints.length} dead-end nodes — ensure all parallel branches fan-in to their downstream node using connectChain -->`);
   }
 
+  lines.push('</flow-update>');
+  return lines.join('\n');
+};
+
+export const buildXmlValidationMessage = (
+  orphans: Pick<NodeInfo, 'id' | 'kind' | 'name'>[],
+  deadEnds: Pick<NodeInfo, 'id' | 'kind' | 'name'>[],
+): string => {
   if (orphans.length > 0) {
-    const orphanNames = orphans.map((n) => `${n.name} (${n.id})`).join(', ');
-    summary += `\nOrphans (NOT connected to flow): ${orphanNames}`;
+    const orphanElements = orphans
+      .map((n) => `  <orphan id="${escapeXml(n.id)}" name="${escapeXml(n.name)}" type="${escapeXml(n.kind)}"/>`)
+      .join('\n');
+    return `<validation status="failed">\n${orphanElements}\n</validation>\nConnect these nodes using connectChain before responding.`;
   }
 
-  return summary;
+  const deadEndElements = deadEnds
+    .map((n) => `  <dead-end id="${escapeXml(n.id)}" name="${escapeXml(n.name)}" type="${escapeXml(n.kind)}"/>`)
+    .join('\n');
+  return `<validation status="warning">\n${deadEndElements}\n</validation>\nUse connectChain with nested arrays for fan-in: [["NodeA","NodeB"],"TargetNode"].`;
+};
+
+export const buildCompactStateSummary = (context: FlowContextData): string => {
+  return buildXmlCompactSummary(context);
 };
 
 export const buildSystemPrompt = (context: FlowContextData): string => {
-  const nodesList = context.nodes
-    .map((n) => {
-      const stateInfo = n.state !== 'Idle' ? `, State: ${n.state}` : '';
-      const errorInfo = n.info ? `, Error: "${n.info}"` : '';
-      const methodInfo = n.httpMethod ? `, Method: ${n.httpMethod}` : '';
-      return `  - ${n.name} (ID: ${n.id}, Type: ${n.kind}${methodInfo}${stateInfo}${errorInfo})`;
-    })
-    .join('\n');
-
-  const edgesList = context.edges
-    .map((e) => {
-      const sourceNode = context.nodes.find((n) => n.id === e.sourceId);
-      const targetNode = context.nodes.find((n) => n.id === e.targetId);
-      const handleInfo = e.sourceHandle ? ` via ${e.sourceHandle}` : '';
-      return `  - ${sourceNode?.name ?? e.sourceId} -> ${targetNode?.name ?? e.targetId}${handleInfo}`;
-    })
-    .join('\n');
-
-  const variablesList = context.variables
-    .filter((v) => v.enabled)
-    .map((v) => `  - ${v.key}: ${v.value}`)
-    .join('\n');
-
-  // Find nodes with errors (state is Failure)
-  const failedNodes = context.nodes.filter((n) => n.state === 'Failure');
-  const failedExecutions = context.executions.filter((e) => e.state === 'Failure' && e.error);
-
-  let errorSection = '';
-  if (failedNodes.length > 0 || failedExecutions.length > 0) {
-    const errorDetails = failedExecutions.map((e) => {
-      const node = context.nodes.find((n) => n.id === e.nodeId);
-      return `  - ${node?.name ?? e.nodeId}: ${e.error}`;
-    }).join('\n');
-
-    errorSection = `
-
-ERRORS (nodes that failed during execution):
-${errorDetails || '  (no detailed error info available)'}`;
-  }
-
   return `You are a workflow automation assistant. You help users create and modify workflow nodes using natural language.
 
 Current Workflow State (ID: ${context.flowId}):
 
-NODES:
-${nodesList || '  (no nodes)'}
-
-CONNECTIONS:
-${edgesList || '  (no connections)'}
-
-VARIABLES:
-${variablesList || '  (no variables)'}${buildSelectedNodesSection(context)}${buildFlowEndpointsSection(context)}${buildOrphanNodesSection(context)}${errorSection}
+${buildXmlFlowBlock(context)}
 
 IMPORTANT RULES:
-1. To find the start node, look for a node with kind "ManualStart".
-2. When connecting nodes, use the node IDs from above.
+1. To find the start node, look for a node with type "ManualStart".
+2. When connecting nodes, use the node IDs from the workflow XML.
 3. Node outputs are stored by node name. In JS code use ctx["NodeName"]. HTTP nodes output { response: { status, body }, request }. ForEach nodes expose { item, key } during iteration.
 4. A node can connect to multiple targets for parallel execution (all branches run and complete before downstream nodes continue). To run steps sequentially, chain them: Start → A → B → C. Only create Condition nodes when "then" and "else" lead to DIFFERENT destinations — if both go to the same node, skip the Condition.
-5. ALWAYS use connectChain for ALL connections — sequential, branching (auto-applies "then"), fan-out, and fan-in. Examples: ["A","B"] single, ["A","B","C"] chain, ["A",["B","C"],"D"] fan-out/fan-in, [["B","C"],"D"] fan-in only. Pass sourceHandle: "else" or "loop" for non-default branches.
+5. ALWAYS use connectChain for ALL connections — sequential, branching (auto-applies "then"), fan-out, and fan-in. Examples: ["A","B"] single, ["A","B","C"] chain, ["A",["B","C"],"D"] fan-out/fan-in, [["B","C"],"D"] fan-in only. Pass sourceHandle: "else" or "loop" for non-default branches. Use edge id attributes from \`<edge>\` elements when calling disconnectNodes.
 6. Only use connectBranchingNodes when you need an "else" or "loop" handle on a single edge. NEVER use it for "then" — connectChain handles that automatically.
 7. Always confirm what you did after executing tools.
-8. If a node has State: Failure, use getNodeExecutions to get detailed error information.
+8. If a node has state="Failure", use getNodeExecutions to get detailed error information.
 9. Use getNodeOutput to inspect the input/output data of a node's most recent execution.
-10. When the user has nodes selected, prefer operating on those nodes unless they specify otherwise.
-11. Check FLOW ENDPOINTS to see the last node in each chain - new nodes connect there.
-12. ORPHAN NODES are mistakes — they must be connected to the flow via connectChain.
+10. Nodes with selected="true" are currently selected on canvas — prefer operating on those nodes unless the user specifies otherwise.
+11. Nodes with endpoint="true" are the last in their chain — new nodes connect there.
+12. Nodes with orphan="true" are mistakes — they must be connected to the flow via connectChain.
 13. Create ALL nodes first, then connect them all at once with connectChain. Do not alternate between creating and connecting.
-14. For multi-phase flows, use SEPARATE connectChain calls per phase with a shared fan-in node. Example: ["Start",["GET1","GET2"],"ProcessData"] then ["ProcessData",["POST1","POST2"],"End"]. NEVER use consecutive nested arrays — split them across calls.`
+14. For multi-phase flows, use SEPARATE connectChain calls per phase with a shared fan-in node. Example: ["Start",["GET1","GET2"],"ProcessData"] then ["ProcessData",["POST1","POST2"],"End"]. NEVER use consecutive nested arrays — split them across calls.`;
 };
 
-const buildSelectedNodesSection = (context: FlowContextData): string => {
-  if (!context.selectedNodeIds || context.selectedNodeIds.length === 0) return '';
-
-  const selectedList = context.selectedNodeIds
-    .map((id) => {
-      const node = context.nodes.find((n) => n.id === id);
-      if (!node) return `  - (unknown node, ID: ${id})`;
-      return `  - ${node.name} (ID: ${node.id}, Type: ${node.kind})`;
-    })
-    .join('\n');
-
-  return `
-
-SELECTED NODES (currently selected on canvas):
-${selectedList}`;
-};
