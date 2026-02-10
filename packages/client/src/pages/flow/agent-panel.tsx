@@ -2,6 +2,7 @@ import { FormEvent, KeyboardEvent, use, useEffect, useMemo, useRef, useState } f
 import { FiArrowUp, FiChevronUp, FiTrash2, FiX } from 'react-icons/fi';
 import * as XF from '@xyflow/react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Button } from '@the-dev-tools/ui/button';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
 import { useAgentChat, type Message, type ToolCall } from '~/features/agent';
@@ -131,7 +132,7 @@ export const AgentPanel = () => {
       </div>
 
       {/* Messages */}
-      <div className={tw`flex-1 overflow-y-auto px-2 pb-2 pt-1`}>
+      <div className={tw`flex-1 select-text overflow-y-auto px-2 pb-2 pt-1`}>
         {messages.length === 0 ? (
           <div className={tw`text-sm text-[var(--text-muted)]`}>
             <p>Ask me to create or modify workflow nodes.</p>
@@ -329,6 +330,7 @@ const TerminalMessage = ({ message, isActive }: { message: Message; isActive: bo
   return (
     <div className={tw`space-y-1 px-1 text-[var(--text-secondary)]`}>
       <Markdown
+        remarkPlugins={[remarkGfm]}
         components={{
           code: ({ children, className }) => {
             const isBlock = className?.startsWith('language-');
@@ -363,6 +365,23 @@ const TerminalMessage = ({ message, isActive }: { message: Message; isActive: bo
             <blockquote className={tw`my-1 border-l-2 border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-1 text-[var(--text-tertiary)]`}>
               {children}
             </blockquote>
+          ),
+          table: ({ children }) => (
+            <div className={tw`my-1 overflow-x-auto`}>
+              <table className={tw`w-full border-collapse text-sm`}>{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => (
+            <thead className={tw`border-b border-[var(--border-1)]`}>{children}</thead>
+          ),
+          th: ({ children }) => (
+            <th className={tw`px-2 py-1 text-left text-xs font-semibold text-[var(--text-primary)]`}>{children}</th>
+          ),
+          td: ({ children }) => (
+            <td className={tw`px-2 py-1 text-[var(--text-secondary)]`}>{children}</td>
+          ),
+          tr: ({ children }) => (
+            <tr className={tw`border-b border-[var(--border-1)] last:border-0`}>{children}</tr>
           ),
         }}
       >

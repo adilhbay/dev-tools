@@ -60,6 +60,7 @@
     "react-hook-form": "catalog:",
     "react-icons": "catalog:",
     "react-markdown": "catalog:",
+    "remark-gfm": "catalog:",
     "react-resizable-panels": "catalog:",
     "react-scan": "catalog:",
     "react-stately": "catalog:",
