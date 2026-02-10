@@ -43,7 +43,7 @@ import { AgentLogger } from './agent-logger';
 
 const openai = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: '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',
+  apiKey: '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',
   dangerouslyAllowBrowser: true,
 });
 
@@ -377,14 +377,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
       try {
         const systemPrompt = buildSystemPrompt(currentFlowContext);
-        const EXCLUDED_TOOL_NAMES = new Set([
-          'getFlowVariable', 'getEdge', 'getNode', 'getNodeHttp',
-          'getNodeFor', 'getNodeForEach', 'getNodeCondition', 'getNodeJs',
-          'connectSequentialNodes', 'connectBranchingNodes',
-        ]);
-        const tools = [...allToolSchemas, ...clientToolSchemas]
-          .filter((s) => !EXCLUDED_TOOL_NAMES.has(s.name))
-          .map(formatToolAsOpenAI);
+        const tools = [...allToolSchemas, ...clientToolSchemas].map(formatToolAsOpenAI);
 
         logger.logSystemPrompt(systemPrompt, {
           nodes: currentFlowContext.nodes.length,

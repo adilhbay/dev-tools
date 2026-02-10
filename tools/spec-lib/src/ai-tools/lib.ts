@@ -9,14 +9,13 @@ export const $lib = createTypeSpecLibrary({
 export const $decorators = {
   'DevTools.AITools': {
     aiTool,
-    explorationTool,
     mutationTool,
   },
 };
 
 const { makeStateMap } = makeStateFactory((_) => $lib.createStateSymbol(_));
 
-export type ToolCategory = 'Execution' | 'Exploration' | 'Mutation';
+export type ToolCategory = 'Execution' | 'Mutation';
 
 export interface AIToolOptions {
   category: ToolCategory;
@@ -96,33 +95,3 @@ function mutationTool({ program }: DecoratorContext, target: Model, ...tools: Ra
   mutationTools(program).set(target, resolved);
 }
 
-export interface ExplorationToolOptions {
-  description?: string | undefined;
-  keyField?: string | undefined;
-  name?: string | undefined;
-  title?: string | undefined;
-}
-
-export const explorationTools = makeStateMap<Model, ExplorationToolOptions[]>('explorationTools');
-
-interface RawExplorationToolOptions {
-  description?: string;
-  keyField?: string;
-  name?: string;
-  title?: string;
-}
-
-function explorationTool({ program }: DecoratorContext, target: Model, ...tools: RawExplorationToolOptions[]) {
-  const words = pascalToWords(target.name);
-  const spacedName = words.join(' ');
-
-  const effectiveTools = tools.length > 0 ? tools : [{}];
-
-  const resolved: ExplorationToolOptions[] = effectiveTools.map((tool) => ({
-    description: tool.description ?? `Get a ${spacedName.toLowerCase()} by its primary key.`,
-    keyField: tool.keyField,
-    name: tool.name ?? `Get${target.name}`,
-    title: tool.title ?? `Get ${spacedName}`,
-  }));
-  explorationTools(program).set(target, resolved);
-}

@@ -39,7 +39,6 @@ model FlowVersion {
   @foreignKey flowId: Id;
 }
 
-@AITools.explorationTool
 @AITools.mutationTool(
   #{ operation: AITools.CrudOperation.Insert, title: "Create Variable", name: "CreateVariable", description: "Create a new workflow variable that can be referenced in node expressions." },
   #{ operation: AITools.CrudOperation.Update, title: "Update Variable", name: "UpdateVariable", description: "Update an existing workflow variable." }
@@ -59,10 +58,7 @@ enum HandleKind {
   AiTools,
 }
 
-@AITools.explorationTool
 @AITools.mutationTool(
-  #{ operation: AITools.CrudOperation.Insert, title: "Connect Sequential Nodes", name: "ConnectSequentialNodes", exclude: #["sourceHandle"], description: "Connect two nodes in a sequential flow. Use this for ManualStart, JavaScript, and HTTP nodes which have a single output." },
-  #{ operation: AITools.CrudOperation.Insert, title: "Connect Branching Nodes", name: "ConnectBranchingNodes", description: "Connect a branching node (Condition, For, ForEach) to another node. Requires sourceHandle: 'then' or 'else' for Condition nodes, 'then' or 'loop' for For/ForEach nodes." },
   #{ operation: AITools.CrudOperation.Delete, title: "Disconnect Nodes", name: "DisconnectNodes", description: "Remove an edge connection between nodes." }
 )
 @TanStackDB.collection
@@ -131,7 +127,6 @@ model Position {
   y: float32;
 }
 
-@AITools.explorationTool
 @AITools.mutationTool(
   #{ operation: AITools.CrudOperation.Update, title: "Update Node Config", name: "UpdateNodeConfig", exclude: #["kind"], description: "Update general node properties like name or position." },
   #{ operation: AITools.CrudOperation.Delete, description: "Delete a node from the workflow. Also removes all connected edges." }
@@ -147,7 +142,6 @@ model Node {
   @visibility(Lifecycle.Read) info?: string;
 }
 
-@AITools.explorationTool
 @AITools.mutationTool(
   #{ operation: AITools.CrudOperation.Insert, title: "Create HTTP Node", name: "CreateHttpNode", parent: "Node", exclude: #["kind", "httpId", "deltaHttpId"], include: #[#{ fromModel: "Http", fields: #["url", "method"] }], description: "Create a new HTTP request node that makes an API call." }
 )
@@ -163,7 +157,6 @@ enum ErrorHandling {
   Break,
 }
 
-@AITools.explorationTool
 @AITools.mutationTool(
   #{ operation: AITools.CrudOperation.Insert, title: "Create For Loop Node", name: "CreateForNode", parent: "Node", exclude: #["kind"], description: "Create a for-loop node. REQUIRED: iterations (positive integer) AND condition (break condition that exits the loop early when true). The loop runs up to 'iterations' times but stops early when the break condition evaluates to true." }
 )
@@ -175,7 +168,6 @@ model NodeFor {
   errorHandling: ErrorHandling;
 }
 
-@AITools.explorationTool
 @AITools.mutationTool(
   #{ operation: AITools.CrudOperation.Insert, title: "Create ForEach Loop Node", name: "CreateForEachNode", parent: "Node", exclude: #["kind"], description: "Create a forEach node that iterates over an array or object. REQUIRED: path (expression for the collection) AND condition (break condition that exits the loop early when true)." }
 )
@@ -187,7 +179,6 @@ model NodeForEach {
   errorHandling: ErrorHandling;
 }
 
-@AITools.explorationTool
 @AITools.mutationTool(
   #{ operation: AITools.CrudOperation.Insert, title: "Create Condition Node", name: "CreateConditionNode", parent: "Node", exclude: #["kind"], description: "Create a condition node that routes flow based on a boolean expression. Has THEN and ELSE output handles." }
 )
@@ -197,7 +188,6 @@ model NodeCondition {
   condition: string;
 }
 
-@AITools.explorationTool
 @AITools.mutationTool(
   #{ operation: AITools.CrudOperation.Insert, title: "Create JavaScript Node", name: "CreateJsNode", parent: "Node", exclude: #["kind"], description: "Create a new JavaScript node in the workflow. JS nodes can transform data, make calculations, or perform custom logic." },
   #{ operation: AITools.CrudOperation.Update, title: "Update Node Code", name: "UpdateNodeCode", description: "Update the JavaScript code of a JS node." }

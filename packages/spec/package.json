@@ -12,7 +12,6 @@
     "./buf/*": "./dist/buf/typescript/*.ts",
     "./tanstack-db/*": "./dist/tanstack-db/typescript/*.ts",
     "./tools/execution": "./dist/ai-tools/v1/execution.ts",
-    "./tools/exploration": "./dist/ai-tools/v1/exploration.ts",
     "./tools/mutation": "./dist/ai-tools/v1/mutation.ts"
   },
   "dependencies": {

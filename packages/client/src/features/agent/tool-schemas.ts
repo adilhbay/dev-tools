@@ -6,11 +6,10 @@
 import { JSONSchema, Schema } from 'effect';
 
 import { ExecutionSchemas } from '@the-dev-tools/spec/tools/execution';
-import { ExplorationSchemas } from '@the-dev-tools/spec/tools/exploration';
 import { MutationSchemas } from '@the-dev-tools/spec/tools/mutation';
 
 // Re-export schemas for convenience
-export { ExecutionSchemas, ExplorationSchemas, MutationSchemas };
+export { ExecutionSchemas, MutationSchemas };
 export * from '@the-dev-tools/spec-lib/common';
 
 // =============================================================================
@@ -98,10 +97,6 @@ export const executionSchemas = Object.values(ExecutionSchemas).map((s) =>
   schemaToToolDefinition(s as Schema.Schema<unknown, unknown>),
 );
 
-export const explorationSchemas = Object.values(ExplorationSchemas).map((s) =>
-  schemaToToolDefinition(s as Schema.Schema<unknown, unknown>),
-);
-
 export const mutationSchemas = Object.values(MutationSchemas).map((s) =>
   schemaToToolDefinition(s as Schema.Schema<unknown, unknown>),
 );
@@ -123,7 +118,7 @@ if (createHttpNodeDef) {
 }
 
 /** All tool schemas combined - ready for AI tool calling */
-export const allToolSchemas = [...executionSchemas, ...explorationSchemas, ...mutationSchemas];
+export const allToolSchemas = [...executionSchemas, ...mutationSchemas];
 
 // =============================================================================
 // Effect Schemas (for runtime validation)
@@ -131,7 +126,6 @@ export const allToolSchemas = [...executionSchemas, ...explorationSchemas, ...mu
 
 export const EffectSchemas = {
   Execution: ExecutionSchemas,
-  Exploration: ExplorationSchemas,
   Mutation: MutationSchemas,
 } as const;
 
