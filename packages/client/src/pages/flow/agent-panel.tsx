@@ -1,5 +1,5 @@
 import { FormEvent, KeyboardEvent, use, useEffect, useMemo, useRef, useState } from 'react';
-import { FiTrash2, FiX } from 'react-icons/fi';
+import { FiArrowUp, FiChevronUp, FiTrash2, FiX } from 'react-icons/fi';
 import * as XF from '@xyflow/react';
 import Markdown from 'react-markdown';
 import { Button } from '@the-dev-tools/ui/button';
@@ -94,18 +94,7 @@ export const AgentPanel = () => {
             {messages.map((message) => (
               <TerminalMessage key={message.id} message={message} />
             ))}
-            {isLoading && (
-              <div className={tw`flex items-center gap-2`}>
-                <span className={tw`animate-pulse text-[var(--text-muted)]`}>... thinking</span>
-                <button
-                  type='button'
-                  onClick={cancel}
-                  className={tw`rounded-[5px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-5)]`}
-                >
-                  cancel
-                </button>
-              </div>
-            )}
+            {isLoading && <ThinkingBlock />}
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -114,25 +103,116 @@ export const AgentPanel = () => {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className={tw`m-2 mt-0 flex items-end gap-2 rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2.5 py-1.5`}>
-        <span className={tw`py-1 text-[var(--brand-tertiary-2)]`}>&gt;</span>
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            autoResize();
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder='Type a message...'
-          disabled={isLoading}
-          rows={1}
-          className={tw`min-h-[48px] max-h-[120px] flex-1 resize-none border-none bg-transparent text-sm font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none disabled:text-[var(--text-subtle)]`}
-        />
-      </form>
+      <div className={tw`m-2 mt-0 rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2.5 py-1.5`}>
+        <div className={tw`flex items-end gap-2`}>
+          <span className={tw`py-1 text-[var(--brand-tertiary-2)]`}>&gt;</span>
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              autoResize();
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder='Type a message...'
+            disabled={isLoading}
+            rows={1}
+            className={tw`min-h-[48px] max-h-[120px] flex-1 resize-none border-none bg-transparent text-sm font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none disabled:text-[var(--text-subtle)]`}
+          />
+        </div>
+        <div className={tw`flex justify-end pt-1.5`}>
+          {isLoading ? <AbortButton onClick={cancel} /> : <SendButton onClick={handleSubmit} disabled={!input.trim()} />}
+        </div>
+      </div>
     </div>
   );
 };
+
+const StreamingIndicator = () => (
+  <div className={tw`flex h-5 items-center`}>
+    <div className={tw`flex space-x-0.5`}>
+      <div className={tw`size-1 animate-bounce rounded-full bg-[var(--text-muted)] [animation-delay:0ms] [animation-duration:1.2s]`} />
+      <div className={tw`size-1 animate-bounce rounded-full bg-[var(--text-muted)] [animation-delay:150ms] [animation-duration:1.2s]`} />
+      <div className={tw`size-1 animate-bounce rounded-full bg-[var(--text-muted)] [animation-delay:300ms] [animation-duration:1.2s]`} />
+    </div>
+  </div>
+);
+
+const ThinkingBlock = () => {
+  const [expanded, setExpanded] = useState(false);
+  const [elapsed, setElapsed] = useState(1);
+  const startRef = useRef(Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setElapsed(Math.max(1, Math.round((Date.now() - startRef.current) / 1000)));
+    }, 100);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className={tw`px-1`}>
+      <button
+        type='button'
+        onClick={() => setExpanded((v) => !v)}
+        className={tw`flex w-full items-center gap-2 text-left`}
+      >
+        <span className={tw`relative text-sm font-medium text-[var(--text-muted)]`}>
+          Thinking
+          <span
+            aria-hidden
+            className={tw`pointer-events-none absolute inset-0 text-sm font-medium`}
+            style={{
+              background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%)',
+              backgroundSize: '200% 100%',
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+              color: 'transparent',
+              mixBlendMode: 'screen',
+              animation: 'thinking-shimmer 3s ease-in-out infinite',
+            }}
+          >
+            Thinking
+          </span>
+        </span>
+        <span className={tw`text-xs text-[var(--text-subtle)]`}>{elapsed}s</span>
+        <FiChevronUp
+          className={tw`size-3 text-[var(--text-subtle)] transition-transform ${expanded ? '' : 'rotate-180'}`}
+        />
+      </button>
+      <div
+        className={tw`overflow-hidden transition-all duration-200 ${expanded ? 'max-h-[150px]' : 'max-h-0'}`}
+      >
+        <div className={tw`pt-1`}>
+          <StreamingIndicator />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SendButton = ({ onClick, disabled }: { onClick: () => void; disabled: boolean }) => (
+  <button
+    type='button'
+    onClick={onClick}
+    disabled={disabled}
+    className={tw`flex size-[22px] items-center justify-center rounded-full bg-[var(--c-383838)] text-white transition-colors hover:bg-[var(--c-575757)] disabled:bg-[var(--c-808080)] dark:bg-[var(--c-E0E0E0)] dark:text-black dark:hover:bg-[var(--c-CFCFCF)]`}
+  >
+    <FiArrowUp className={tw`size-3.5`} />
+  </button>
+);
+
+const AbortButton = ({ onClick }: { onClick: () => void }) => (
+  <button
+    type='button'
+    onClick={onClick}
+    className={tw`flex size-5 items-center justify-center rounded-full bg-[var(--c-383838)] transition-colors hover:bg-[var(--c-575757)] dark:bg-[var(--c-E0E0E0)] dark:hover:bg-[var(--c-CFCFCF)]`}
+  >
+    <svg width='8' height='8' viewBox='0 0 8 8' fill='none'>
+      <rect width='8' height='8' rx='1' fill='white' className={tw`dark:fill-black`} />
+    </svg>
+  </button>
+);
 
 const TerminalMessage = ({ message }: { message: Message }) => {
   if (message.role === 'user') {

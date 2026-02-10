@@ -27,6 +27,9 @@
   --brand-400: #8e4cfb;
   --brand-secondary: #33b4ff;
   --brand-tertiary-2: #32bd7e;
+  --c-383838: #383838;
+  --c-575757: #575757;
+  --c-808080: #808080;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -51,7 +54,16 @@
     --brand-400: #8e4cfb;
     --brand-secondary: #33b4ff;
     --brand-tertiary-2: #32bd7e;
+    --bg: #1b1b1b;
+    --c-E0E0E0: #e0e0e0;
+    --c-CFCFCF: #cfcfcf;
   }
+}
+
+@keyframes thinking-shimmer {
+  0%   { background-position: 150% 0; }
+  50%  { background-position: 0% 0; }
+  100% { background-position: -150% 0; }
 }
 
 html,
