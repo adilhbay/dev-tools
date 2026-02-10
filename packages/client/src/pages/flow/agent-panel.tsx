@@ -1,4 +1,4 @@
-import { FormEvent, use, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, KeyboardEvent, use, useEffect, useMemo, useRef, useState } from 'react';
 import { FiTrash2, FiX } from 'react-icons/fi';
 import * as XF from '@xyflow/react';
 import Markdown from 'react-markdown';
@@ -16,66 +16,91 @@ export const AgentPanel = () => {
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
+  const autoResize = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = '0';
+    el.style.height = el.scrollHeight + 'px';
+  };
+
+  const handleSubmit = (e?: FormEvent) => {
+    e?.preventDefault();
     if (!input.trim() || isLoading) return;
     sendMessage(input.trim());
     setInput('');
+    // Reset textarea height after clearing
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = '';
+      }
+    });
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
   };
 
   return (
-    <div className={tw`flex h-full flex-col bg-slate-950 font-mono text-sm text-slate-200`}>
+    <div className={tw`flex h-full flex-col overflow-hidden bg-[var(--surface-1)] text-sm text-[var(--text-primary)]`}>
       {/* Header */}
-      <div className={tw`flex items-center gap-2 border-b border-slate-800 px-3 py-1.5`}>
-        <div className={tw`flex flex-1 items-center gap-2 text-xs font-semibold uppercase tracking-widest text-slate-400`}>
+      <div className={tw`mx-2 mt-2 flex items-center gap-2 rounded-[4px] border border-[var(--border)] bg-[var(--surface-4)] px-3 py-1.5`}>
+        <div className={tw`flex flex-1 items-center gap-2 truncate text-sm font-medium tracking-[0.28px] text-[var(--text-primary)]`}>
           Agent
           {selectedNodeIds.length > 0 && (
-            <span className={tw`rounded bg-blue-900/50 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-blue-300`}>
+            <span className={tw`rounded-[40px] border border-[var(--border)] bg-[var(--surface-5)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]`}>
               ● {selectedNodeIds.length} node{selectedNodeIds.length !== 1 ? 's' : ''} selected
             </span>
           )}
         </div>
 
         <Button
-          className={tw`p-1`}
+          className={tw`p-1 text-[var(--text-secondary)] hover:bg-[var(--surface-5)]`}
           onPress={clearMessages}
-          variant='ghost dark'
+          variant='ghost'
           isDisabled={messages.length === 0}
         >
-          <FiTrash2 className={tw`size-3.5 text-slate-500`} />
+          <FiTrash2 className={tw`size-3.5`} />
         </Button>
 
-        <Button className={tw`p-1`} onPress={() => void setAgentPanelOpen?.(false)} variant='ghost dark'>
-          <FiX className={tw`size-4 text-slate-500`} />
+        <Button
+          className={tw`p-1 text-[var(--text-secondary)] hover:bg-[var(--surface-5)]`}
+          onPress={() => void setAgentPanelOpen?.(false)}
+          variant='ghost'
+        >
+          <FiX className={tw`size-4`} />
         </Button>
       </div>
 
       {/* Messages */}
-      <div className={tw`flex-1 overflow-y-auto px-4 py-3`}>
+      <div className={tw`flex-1 overflow-y-auto px-2 pb-2 pt-1`}>
         {messages.length === 0 ? (
-          <div className={tw`text-slate-600`}>
+          <div className={tw`text-sm text-[var(--text-muted)]`}>
             <p>Ask me to create or modify workflow nodes.</p>
-            <p className={tw`mt-1 text-slate-700`}>
+            <p className={tw`mt-1 text-[var(--text-subtle)]`}>
               e.g. "Create a JavaScript node that returns hello world"
             </p>
           </div>
         ) : (
-          <div className={tw`space-y-2`}>
+          <div className={tw`space-y-2 py-2`}>
             {messages.map((message) => (
               <TerminalMessage key={message.id} message={message} />
             ))}
             {isLoading && (
               <div className={tw`flex items-center gap-2`}>
-                <span className={tw`animate-pulse text-slate-500`}>... thinking</span>
+                <span className={tw`animate-pulse text-[var(--text-muted)]`}>... thinking</span>
                 <button
                   type='button'
                   onClick={cancel}
-                  className={tw`rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-300`}
+                  className={tw`rounded-[5px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-5)]`}
                 >
                   cancel
                 </button>
@@ -85,19 +110,24 @@ export const AgentPanel = () => {
           </div>
         )}
 
-        {error && <div className={tw`mt-2 text-red-400`}>{error}</div>}
+        {error && <div className={tw`mt-2 text-[var(--text-error)]`}>{error}</div>}
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className={tw`flex items-center gap-2 border-t border-slate-800 px-4 py-2`}>
-        <span className={tw`text-green-400`}>&gt;</span>
-        <input
-          type='text'
+      <form onSubmit={handleSubmit} className={tw`m-2 mt-0 flex items-end gap-2 rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2.5 py-1.5`}>
+        <span className={tw`py-1 text-[var(--brand-tertiary-2)]`}>&gt;</span>
+        <textarea
+          ref={textareaRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            autoResize();
+          }}
+          onKeyDown={handleKeyDown}
           placeholder='Type a message...'
           disabled={isLoading}
-          className={tw`flex-1 border-none bg-transparent text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none disabled:text-slate-500`}
+          rows={1}
+          className={tw`min-h-[48px] max-h-[120px] flex-1 resize-none border-none bg-transparent text-sm font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none disabled:text-[var(--text-subtle)]`}
         />
       </form>
     </div>
@@ -108,8 +138,10 @@ const TerminalMessage = ({ message }: { message: Message }) => {
   if (message.role === 'user') {
     return (
       <div className={tw`flex gap-2`}>
-        <span className={tw`text-green-400`}>&gt;</span>
-        <span className={tw`text-slate-200`}>{message.content}</span>
+        <span className={tw`text-[var(--brand-tertiary-2)]`}>&gt;</span>
+        <span className={tw`rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-1 text-sm font-medium text-[var(--text-primary)]`}>
+          {message.content}
+        </span>
       </div>
     );
   }
@@ -120,11 +152,11 @@ const TerminalMessage = ({ message }: { message: Message }) => {
 
   if (message.role === 'assistant' && message.toolCalls) {
     return (
-      <div className={tw`space-y-1`}>
+      <div className={tw`space-y-1 px-1`}>
         {message.toolCalls.map((tc) => (
           <div key={tc.id} className={tw`flex gap-2`}>
-            <span className={tw`text-yellow-400`}>$</span>
-            <span className={tw`text-slate-400`}>{tc.name}</span>
+            <span className={tw`text-[var(--brand-400)]`}>$</span>
+            <span className={tw`text-sm font-medium text-[var(--text-secondary)]`}>{tc.name}</span>
           </div>
         ))}
       </div>
@@ -134,35 +166,42 @@ const TerminalMessage = ({ message }: { message: Message }) => {
   if (!message.content) return null;
 
   return (
-    <div className={tw`border-l border-slate-700 pl-3 text-slate-300`}>
+    <div className={tw`space-y-1 px-1 text-[var(--text-secondary)]`}>
       <Markdown
         components={{
           code: ({ children, className }) => {
             const isBlock = className?.startsWith('language-');
             return isBlock ? (
-              <pre className={tw`my-1 overflow-x-auto rounded bg-slate-900 p-2 text-xs`}>
+              <pre className={tw`my-1 overflow-x-auto rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-1)] p-2 text-xs text-[var(--text-secondary)]`}>
                 <code>{children}</code>
               </pre>
             ) : (
-              <code className={tw`rounded bg-slate-800 px-1 py-0.5 text-xs`}>{children}</code>
+              <code className={tw`rounded border border-[var(--border-1)] bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[0.85em] text-[var(--text-primary)]`}>{children}</code>
             );
           },
           pre: ({ children }) => <>{children}</>,
-          p: ({ children }) => <p className={tw`my-1`}>{children}</p>,
-          ul: ({ children }) => <ul className={tw`my-1 list-disc pl-4`}>{children}</ul>,
-          ol: ({ children }) => <ol className={tw`my-1 list-decimal pl-4`}>{children}</ol>,
-          li: ({ children }) => <li className={tw`my-0.5`}>{children}</li>,
-          h1: ({ children }) => <div className={tw`my-1 font-bold text-slate-200`}>{children}</div>,
-          h2: ({ children }) => <div className={tw`my-1 font-bold text-slate-200`}>{children}</div>,
-          h3: ({ children }) => <div className={tw`my-1 font-semibold text-slate-200`}>{children}</div>,
+          p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-[var(--text-primary)]`}>{children}</p>,
+          ul: ({ children }) => <ul className={tw`my-1 list-disc space-y-0.5 pl-5`}>{children}</ul>,
+          ol: ({ children }) => <ol className={tw`my-1 list-decimal space-y-0.5 pl-5`}>{children}</ol>,
+          li: ({ children }) => <li className={tw`text-sm leading-[1.4] text-[var(--text-secondary)]`}>{children}</li>,
+          h1: ({ children }) => <div className={tw`my-1 text-base font-semibold text-[var(--text-primary)]`}>{children}</div>,
+          h2: ({ children }) => <div className={tw`my-1 text-[15px] font-semibold text-[var(--text-primary)]`}>{children}</div>,
+          h3: ({ children }) => <div className={tw`my-1 text-sm font-semibold text-[var(--text-primary)]`}>{children}</div>,
           a: ({ children, href }) => (
-            <a href={href} className={tw`text-blue-400 underline`} target='_blank' rel='noreferrer'>
+            <a
+              href={href}
+              className={tw`text-[var(--brand-secondary)] underline hover:opacity-80`}
+              target='_blank'
+              rel='noreferrer'
+            >
               {children}
             </a>
           ),
-          strong: ({ children }) => <strong className={tw`font-bold text-slate-200`}>{children}</strong>,
+          strong: ({ children }) => <strong className={tw`font-semibold text-[var(--text-primary)]`}>{children}</strong>,
           blockquote: ({ children }) => (
-            <blockquote className={tw`my-1 border-l-2 border-slate-600 pl-2 text-slate-400`}>{children}</blockquote>
+            <blockquote className={tw`my-1 border-l-2 border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-1 text-[var(--text-tertiary)]`}>
+              {children}
+            </blockquote>
           ),
         }}
       >
@@ -183,18 +222,18 @@ const ToolResultMessage = ({ content }: { content: string }) => {
   const isLong = content.length > 80;
 
   return (
-    <div className={tw`text-slate-600`}>
+    <div className={tw`rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-1 text-xs text-[var(--text-secondary)]`}>
       <button
         type='button'
         onClick={() => isLong && setExpanded(!expanded)}
-        className={tw`flex items-center gap-1 text-left hover:text-slate-500`}
+        className={tw`flex items-center gap-1 text-left hover:text-[var(--text-muted)]`}
       >
-        <span className={tw`text-slate-700`}>←</span>
-        <span className={tw`font-mono text-xs`}>
+        <span className={tw`text-[var(--text-muted)]`}>←</span>
+        <span className={tw`font-mono text-xs text-[var(--text-secondary)]`}>
           {expanded ? content : preview}
         </span>
         {isLong && (
-          <span className={tw`ml-1 text-[10px] text-slate-700`}>
+          <span className={tw`ml-1 text-[10px] text-[var(--text-muted)]`}>
             {expanded ? '▲' : '▼'}
           </span>
         )}
