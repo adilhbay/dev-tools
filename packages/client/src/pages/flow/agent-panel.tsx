@@ -4,8 +4,51 @@ import * as XF from '@xyflow/react';
 import Markdown from 'react-markdown';
 import { Button } from '@the-dev-tools/ui/button';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
-import { useAgentChat, type Message } from '~/features/agent';
+import { useAgentChat, type Message, type ToolCall } from '~/features/agent';
 import { FlowContext } from './context';
+
+// ---------------------------------------------------------------------------
+// Tool call display helpers
+// ---------------------------------------------------------------------------
+
+const TOOL_OVERRIDES: Record<string, [active: string, done: string, label: string]> = {
+  FlowRunRequest: ['Running', 'Ran', 'Flow'],
+  FlowStopRequest: ['Stopping', 'Stopped', 'Flow'],
+};
+
+const VERB_PAIRS: Record<string, [active: string, done: string]> = {
+  Create: ['Creating', 'Created'],
+  Update: ['Updating', 'Updated'],
+  Delete: ['Deleting', 'Deleted'],
+  Disconnect: ['Disconnecting', 'Disconnected'],
+  Connect: ['Connecting', 'Connected'],
+  Inspect: ['Inspecting', 'Inspected'],
+  Get: ['Retrieving', 'Retrieved'],
+  Configure: ['Configuring', 'Configured'],
+};
+
+const formatToolCall = (name: string, active: boolean): [verb: string, label: string] => {
+  const ov = TOOL_OVERRIDES[name];
+  if (ov) return [active ? ov[0] : ov[1], ov[2]];
+
+  const words = name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').split(' ');
+  const pair = VERB_PAIRS[words[0] ?? ''];
+  const verb = pair ? (active ? pair[0] : pair[1]) : active ? 'Running' : 'Ran';
+  const rest = (pair ? words.slice(1) : words)
+    .join(' ')
+    .replace(/\bHttp\b/g, 'HTTP')
+    .replace(/\bJs\b/g, 'JS')
+    .replace(/\s*Request$/g, '')
+    .trim();
+  return [verb, rest || name];
+};
+
+const getToolBrief = (args: Record<string, unknown>): string | null => {
+  if (typeof args.name === 'string' && args.name) return args.name;
+  if (typeof args.url === 'string' && args.url) return args.url;
+  if (typeof args.key === 'string' && args.key) return args.key;
+  return null;
+};
 
 export const AgentPanel = () => {
   const { flowId, setAgentPanelOpen } = use(FlowContext);
@@ -17,6 +60,13 @@ export const AgentPanel = () => {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const lastToolCallIdx = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]!.role === 'assistant' && messages[i]!.toolCalls) return i;
+    }
+    return -1;
+  }, [messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -91,8 +141,8 @@ export const AgentPanel = () => {
           </div>
         ) : (
           <div className={tw`space-y-2 py-2`}>
-            {messages.map((message) => (
-              <TerminalMessage key={message.id} message={message} />
+            {messages.map((message, i) => (
+              <TerminalMessage key={message.id} message={message} isActive={isLoading && i === lastToolCallIdx} />
             ))}
             {isLoading && <ThinkingBlock />}
             <div ref={messagesEndRef} />
@@ -214,7 +264,41 @@ const AbortButton = ({ onClick }: { onClick: () => void }) => (
   </button>
 );
 
-const TerminalMessage = ({ message }: { message: Message }) => {
+const ToolCallItem = ({ toolCall: tc, isActive }: { toolCall: ToolCall; isActive: boolean }) => {
+  const [verb, label] = formatToolCall(tc.name, isActive);
+  const brief = getToolBrief(tc.arguments);
+  const fullText = brief ? `${verb} ${label} · ${brief}` : `${verb} ${label}`;
+
+  return (
+    <div className={tw`relative w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium`}>
+      <span className={tw`text-[var(--text-primary)] dark:text-[var(--text-tertiary)]`}>
+        {verb}
+      </span>{' '}
+      <span className={tw`text-[var(--text-muted)]`}>
+        {brief ? `${label} · ${brief}` : label}
+      </span>
+      {isActive && (
+        <span
+          aria-hidden
+          className={tw`pointer-events-none absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap`}
+          style={{
+            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%)',
+            backgroundSize: '200% 100%',
+            backgroundClip: 'text',
+            WebkitBackgroundClip: 'text',
+            color: 'transparent',
+            mixBlendMode: 'screen',
+            animation: 'toolcall-shimmer 1.4s ease-in-out infinite',
+          }}
+        >
+          {fullText}
+        </span>
+      )}
+    </div>
+  );
+};
+
+const TerminalMessage = ({ message, isActive }: { message: Message; isActive: boolean }) => {
   if (message.role === 'user') {
     return (
       <div className={tw`flex gap-2`}>
@@ -232,12 +316,9 @@ const TerminalMessage = ({ message }: { message: Message }) => {
 
   if (message.role === 'assistant' && message.toolCalls) {
     return (
-      <div className={tw`space-y-1 px-1`}>
+      <div className={tw`space-y-0.5 px-1`}>
         {message.toolCalls.map((tc) => (
-          <div key={tc.id} className={tw`flex gap-2`}>
-            <span className={tw`text-[var(--brand-400)]`}>$</span>
-            <span className={tw`text-sm font-medium text-[var(--text-secondary)]`}>{tc.name}</span>
-          </div>
+          <ToolCallItem key={tc.id} toolCall={tc} isActive={isActive} />
         ))}
       </div>
     );
@@ -302,18 +383,18 @@ const ToolResultMessage = ({ content }: { content: string }) => {
   const isLong = content.length > 80;
 
   return (
-    <div className={tw`rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-1 text-xs text-[var(--text-secondary)]`}>
+    <div className={tw`min-w-0 max-w-full overflow-hidden rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-1 text-xs text-[var(--text-secondary)]`}>
       <button
         type='button'
         onClick={() => isLong && setExpanded(!expanded)}
-        className={tw`flex items-center gap-1 text-left hover:text-[var(--text-muted)]`}
+        className={tw`flex w-full min-w-0 items-center gap-1 text-left hover:text-[var(--text-muted)]`}
       >
-        <span className={tw`text-[var(--text-muted)]`}>←</span>
-        <span className={tw`font-mono text-xs text-[var(--text-secondary)]`}>
+        <span className={tw`shrink-0 text-[var(--text-muted)]`}>←</span>
+        <span className={tw`min-w-0 font-mono text-xs text-[var(--text-secondary)] ${expanded ? 'whitespace-pre-wrap break-all' : 'overflow-hidden text-ellipsis whitespace-nowrap'}`}>
           {expanded ? content : preview}
         </span>
         {isLong && (
-          <span className={tw`ml-1 text-[10px] text-[var(--text-muted)]`}>
+          <span className={tw`ml-1 shrink-0 text-[10px] text-[var(--text-muted)]`}>
             {expanded ? '▲' : '▼'}
           </span>
         )}
