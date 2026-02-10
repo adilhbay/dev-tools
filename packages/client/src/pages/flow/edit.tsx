@@ -97,7 +97,7 @@ export const FlowEditPage = () => {
       <XF.ReactFlowProvider>
         <div className={tw`flex h-full flex-col`}>
           <TopBarWithControls />
-          <PanelGroup orientation='vertical'>
+          <PanelGroup orientation='horizontal'>
             <ResizablePanel>
               <Flow key={Ulid.construct(flowId).toCanonical()}>
                 <ActionBar />
@@ -112,7 +112,7 @@ export const FlowEditPage = () => {
 
             {agentPanelOpen && (
               <>
-                <PanelResizeHandle direction='vertical' />
+                <PanelResizeHandle direction='horizontal' />
                 <ResizablePanel defaultSize='30%' minSize='15%' maxSize='60%'>
                   <AgentPanel />
                 </ResizablePanel>
