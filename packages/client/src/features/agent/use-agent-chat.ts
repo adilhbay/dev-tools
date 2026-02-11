@@ -368,6 +368,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
   const selectedNodeIdsRef = useRef(selectedNodeIds);
   selectedNodeIdsRef.current = selectedNodeIds;
 
+  const messagesRef = useRef(state.messages);
+  messagesRef.current = state.messages;
+
   // Abort controller for cancelling requests
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -477,7 +480,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
         const openAIMessages: OpenAIMessage[] = [
           { role: 'system', content: systemPrompt },
-          ...state.messages.map(messageToOpenAI),
+          ...messagesRef.current.map(messageToOpenAI),
           { role: 'user', content },
         ];
 
@@ -748,7 +751,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         }
       }
     },
-    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, flowCollection, state.messages],
+    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, flowCollection],
   );
 
   const clearMessages = useCallback(() => {
