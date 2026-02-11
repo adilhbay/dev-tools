@@ -54,6 +54,7 @@ export const useEdgeState = () => {
       const clientEdgeIds = await queryCollection((_) =>
         _.from({ client: edgeClientCollection }).fn.select((_) => Ulid.construct(_.client.edgeId).toCanonical()),
       );
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (cancelled) return;
 
       const staleEdgeIds = clientEdgeIds.filter((id) => !flowEdgeIds.has(id));

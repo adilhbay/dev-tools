@@ -76,6 +76,7 @@ export const useNodesState = () => {
       const clientNodeIds = await queryCollection((_) =>
         _.from({ client: nodeClientCollection }).fn.select((_) => Ulid.construct(_.client.nodeId).toCanonical()),
       );
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (cancelled) return;
 
       const staleNodeIds = clientNodeIds.filter((id) => !flowNodeIds.has(id));

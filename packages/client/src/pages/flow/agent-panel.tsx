@@ -1,14 +1,14 @@
+import { eq, useLiveQuery } from '@tanstack/react-db';
+import * as XF from '@xyflow/react';
+import { Ulid } from 'id128';
 import { FormEvent, KeyboardEvent, use, useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiChevronUp, FiTrash2, FiX } from 'react-icons/fi';
-import * as XF from '@xyflow/react';
-import { eq, useLiveQuery } from '@tanstack/react-db';
-import { Ulid } from 'id128';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { NodeCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
 import { Button } from '@the-dev-tools/ui/button';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
-import { useAgentChat, type Message, type ToolCall } from '~/features/agent';
+import { type Message, type ToolCall, useAgentChat } from '~/features/agent';
 import { useApiCollection } from '~/shared/api';
 import { FlowContext } from './context';
 import { nodeClientCollection } from './node';
@@ -23,14 +23,14 @@ const TOOL_OVERRIDES: Record<string, [active: string, done: string, label: strin
 };
 
 const VERB_PAIRS: Record<string, [active: string, done: string]> = {
+  Configure: ['Configuring', 'Configured'],
+  Connect: ['Connecting', 'Connected'],
   Create: ['Creating', 'Created'],
-  Update: ['Updating', 'Updated'],
   Delete: ['Deleting', 'Deleted'],
   Disconnect: ['Disconnecting', 'Disconnected'],
-  Connect: ['Connecting', 'Connected'],
-  Inspect: ['Inspecting', 'Inspected'],
   Get: ['Retrieving', 'Retrieved'],
-  Configure: ['Configuring', 'Configured'],
+  Inspect: ['Inspecting', 'Inspected'],
+  Update: ['Updating', 'Updated'],
 };
 
 const formatToolCall = (name: string, active: boolean): [verb: string, label: string] => {
@@ -49,7 +49,7 @@ const formatToolCall = (name: string, active: boolean): [verb: string, label: st
   return [verb, rest || name];
 };
 
-const getToolBrief = (args: Record<string, unknown>): string | null => {
+const getToolBrief = (args: Record<string, unknown>): null | string => {
   if (typeof args.name === 'string' && args.name) return args.name;
   if (typeof args.url === 'string' && args.url) return args.url;
   if (typeof args.key === 'string' && args.key) return args.key;
@@ -62,7 +62,7 @@ export const AgentPanel = () => {
     (s) => s.nodes.filter((n) => n.selected).map((n) => n.id),
     (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
   );
-  const { messages, isLoading, error, streamingContent, sendMessage, clearMessages, cancel } = useAgentChat({ flowId, selectedNodeIds });
+  const { cancel, clearMessages, error, isLoading, messages, sendMessage, streamingContent } = useAgentChat({ flowId, selectedNodeIds });
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -83,14 +83,14 @@ export const AgentPanel = () => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = '0';
-    el.style.height = el.scrollHeight + 'px';
+    el.style.height = `${el.scrollHeight}px`;
   };
 
-  const handleSubmit = (e?: FormEvent) => {
-    e?.preventDefault();
-    if (!input.trim() || isLoading) return;
-    sendMessage(input.trim());
-    setInput('');
+    const handleSubmit = (e?: FormEvent) => {
+      e?.preventDefault();
+      if (!input.trim() || isLoading) return;
+      void sendMessage(input.trim());
+      setInput('');
     // Reset textarea height after clearing
     requestAnimationFrame(() => {
       if (textareaRef.current) {
@@ -107,24 +107,28 @@ export const AgentPanel = () => {
   };
 
   return (
-    <div className={tw`flex h-full flex-col overflow-hidden bg-[var(--surface-1)] text-sm text-[var(--text-primary)]`}>
+    <div className={tw`flex h-full flex-col overflow-hidden bg-(--surface-1) text-sm text-(--text-primary)`}>
       {/* Header */}
-      <div className={tw`mx-2 mt-2 flex items-center gap-2 rounded-[4px] border border-[var(--border)] bg-[var(--surface-4)] px-3 py-1.5`}>
-        <div className={tw`flex flex-1 items-center gap-2 truncate text-sm font-medium tracking-[0.28px] text-[var(--text-primary)]`}>
+      <div className={tw`
+        mx-2 mt-2 flex items-center gap-2 rounded-[4px] border border-(--border) bg-(--surface-4) px-3 py-1.5
+      `}>
+        <div className={tw`
+          flex flex-1 items-center gap-2 truncate text-sm font-medium tracking-[0.28px] text-(--text-primary)
+        `}>
           Agent
         </div>
 
         <Button
-          className={tw`p-1 text-[var(--text-secondary)] hover:bg-[var(--surface-5)]`}
+          className={tw`p-1 text-(--text-secondary) hover:bg-(--surface-5)`}
+          isDisabled={messages.length === 0}
           onPress={clearMessages}
           variant='ghost'
-          isDisabled={messages.length === 0}
         >
           <FiTrash2 className={tw`size-3.5`} />
         </Button>
 
         <Button
-          className={tw`p-1 text-[var(--text-secondary)] hover:bg-[var(--surface-5)]`}
+          className={tw`p-1 text-(--text-secondary) hover:bg-(--surface-5)`}
           onPress={() => void setAgentPanelOpen?.(false)}
           variant='ghost'
         >
@@ -133,48 +137,57 @@ export const AgentPanel = () => {
       </div>
 
       {/* Messages */}
-      <div className={tw`flex-1 select-text overflow-y-auto px-2 pb-2 pt-1`}>
+      <div className={tw`flex-1 overflow-y-auto px-2 pt-1 pb-2 select-text`}>
         {messages.length === 0 ? (
-          <div className={tw`text-sm text-[var(--text-muted)]`}>
+          <div className={tw`text-sm text-(--text-muted)`}>
             <p>Ask me to create or modify workflow nodes.</p>
-            <p className={tw`mt-1 text-[var(--text-subtle)]`}>
-              e.g. "Create a JavaScript node that returns hello world"
+            <p className={tw`mt-1 text-(--text-subtle)`}>
+              e.g. &quot;Create a JavaScript node that returns hello world&quot;
             </p>
           </div>
         ) : (
           <div className={tw`space-y-2 py-2`}>
             {messages.map((message, i) => (
-              <TerminalMessage key={message.id} message={message} isActive={isLoading && i === lastToolCallIdx} />
+              <TerminalMessage isActive={isLoading && i === lastToolCallIdx} key={message.id} message={message} />
             ))}
             {isLoading && (streamingContent ? <StreamingMessage content={streamingContent} /> : <ThinkingBlock />)}
             <div ref={messagesEndRef} />
           </div>
         )}
 
-        {error && <div className={tw`mt-2 text-[var(--text-error)]`}>{error}</div>}
+        {error && <div className={tw`mt-2 text-(--text-error)`}>{error}</div>}
       </div>
 
       {/* Input */}
-      <div className={tw`m-2 mt-0 rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2.5 py-1.5`}>
+      <div className={tw`m-2 mt-0 rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2.5 py-1.5`}>
         {selectedNodeIds.length > 0 && <SelectedNodesBar selectedNodeIds={selectedNodeIds} />}
         <div className={tw`flex items-end gap-2`}>
-          <span className={tw`py-1 text-[var(--brand-tertiary-2)]`}>&gt;</span>
+          <span className={tw`py-1 text-(--brand-tertiary-2)`}>&gt;</span>
           <textarea
-            ref={textareaRef}
-            value={input}
+            className={tw`
+              max-h-[120px] min-h-[48px] flex-1 resize-none border-none bg-transparent text-sm font-medium
+              text-(--text-primary)
+
+              placeholder:text-(--text-muted)
+
+              focus:outline-none
+
+              disabled:text-(--text-subtle)
+            `}
+            disabled={isLoading}
             onChange={(e) => {
               setInput(e.target.value);
               autoResize();
             }}
             onKeyDown={handleKeyDown}
             placeholder='Type a message...'
-            disabled={isLoading}
+            ref={textareaRef}
             rows={1}
-            className={tw`min-h-[48px] max-h-[120px] flex-1 resize-none border-none bg-transparent text-sm font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none disabled:text-[var(--text-subtle)]`}
+            value={input}
           />
         </div>
         <div className={tw`flex justify-end pt-1.5`}>
-          {isLoading ? <AbortButton onClick={cancel} /> : <SendButton onClick={handleSubmit} disabled={!input.trim()} />}
+          {isLoading ? <AbortButton onClick={cancel} /> : <SendButton disabled={!input.trim()} onClick={handleSubmit} />}
         </div>
       </div>
     </div>
@@ -215,24 +228,30 @@ const SelectedNodesBar = ({ selectedNodeIds }: { selectedNodeIds: string[] }) =>
   };
 
   return (
-    <div className={tw`flex flex-wrap items-center gap-1.5 border-b border-[var(--border-1)] pb-1.5 mb-1.5`}>
+    <div className={tw`mb-1.5 flex flex-wrap items-center gap-1.5 border-b border-(--border-1) pb-1.5`}>
       {selectedNodes.length > 5 ? (
         <div
-          className={tw`flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-5)] px-1.5 py-0.5 text-xs font-medium text-[var(--text-secondary)]`}
+          className={tw`
+            flex items-center gap-1 rounded-md border border-(--border) bg-(--surface-5) px-1.5 py-0.5 text-xs
+            font-medium text-(--text-secondary)
+          `}
         >
           <span>{selectedNodes.length} nodes selected</span>
         </div>
       ) : (
         selectedNodes.map((node) => (
           <div
+            className={tw`
+              flex items-center gap-1 rounded-md border border-(--border) bg-(--surface-5) px-1.5 py-0.5 text-xs
+              font-medium text-(--text-secondary)
+            `}
             key={node.id}
-            className={tw`flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-5)] px-1.5 py-0.5 text-xs font-medium text-[var(--text-secondary)]`}
           >
             <span className={tw`max-w-[120px] truncate`}>{node.name}</span>
             <button
+              className={tw`rounded-sm text-(--text-muted) hover:text-(--text-primary)`}
+              onClick={() => void handleDeselect(node.id)}
               type='button'
-              onClick={() => handleDeselect(node.id)}
-              className={tw`rounded-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]`}
             >
               <FiX className={tw`size-3`} />
             </button>
@@ -241,9 +260,9 @@ const SelectedNodesBar = ({ selectedNodeIds }: { selectedNodeIds: string[] }) =>
       )}
       {selectedNodes.length >= 2 && (
         <button
-          type='button'
+          className={tw`text-[11px] text-(--text-muted) hover:text-(--text-secondary)`}
           onClick={handleClearAll}
-          className={tw`text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)]`}
+          type='button'
         >
           Clear all
         </button>
@@ -255,9 +274,27 @@ const SelectedNodesBar = ({ selectedNodeIds }: { selectedNodeIds: string[] }) =>
 const StreamingIndicator = () => (
   <div className={tw`flex h-5 items-center`}>
     <div className={tw`flex space-x-0.5`}>
-      <div className={tw`size-1 animate-bounce rounded-full bg-[var(--text-muted)] [animation-delay:0ms] [animation-duration:1.2s]`} />
-      <div className={tw`size-1 animate-bounce rounded-full bg-[var(--text-muted)] [animation-delay:150ms] [animation-duration:1.2s]`} />
-      <div className={tw`size-1 animate-bounce rounded-full bg-[var(--text-muted)] [animation-delay:300ms] [animation-duration:1.2s]`} />
+      <div className={tw`
+        size-1 animate-bounce rounded-full bg-(--text-muted)
+
+        [animation-delay:0ms]
+
+        [animation-duration:1.2s]
+      `} />
+      <div className={tw`
+        size-1 animate-bounce rounded-full bg-(--text-muted)
+
+        [animation-delay:150ms]
+
+        [animation-duration:1.2s]
+      `} />
+      <div className={tw`
+        size-1 animate-bounce rounded-full bg-(--text-muted)
+
+        [animation-delay:300ms]
+
+        [animation-duration:1.2s]
+      `} />
     </div>
   </div>
 );
@@ -271,37 +308,37 @@ const ThinkingBlock = () => {
     const id = setInterval(() => {
       setElapsed(Math.max(1, Math.round((Date.now() - startRef.current) / 1000)));
     }, 100);
-    return () => clearInterval(id);
+    return () => void clearInterval(id);
   }, []);
 
   return (
     <div className={tw`px-1`}>
       <button
-        type='button'
-        onClick={() => setExpanded((v) => !v)}
         className={tw`flex w-full items-center gap-2 text-left`}
+        onClick={() => void setExpanded((v) => !v)}
+        type='button'
       >
-        <span className={tw`relative text-sm font-medium text-[var(--text-muted)]`}>
+        <span className={tw`relative text-sm font-medium text-(--text-muted)`}>
           Thinking
           <span
             aria-hidden
             className={tw`pointer-events-none absolute inset-0 text-sm font-medium`}
             style={{
+              animation: 'thinking-shimmer 3s ease-in-out infinite',
               background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%)',
-              backgroundSize: '200% 100%',
               backgroundClip: 'text',
-              WebkitBackgroundClip: 'text',
+              backgroundSize: '200% 100%',
               color: 'transparent',
               mixBlendMode: 'screen',
-              animation: 'thinking-shimmer 3s ease-in-out infinite',
+              WebkitBackgroundClip: 'text',
             }}
           >
             Thinking
           </span>
         </span>
-        <span className={tw`text-xs text-[var(--text-subtle)]`}>{elapsed}s</span>
+        <span className={tw`text-xs text-(--text-subtle)`}>{elapsed}s</span>
         <FiChevronUp
-          className={tw`size-3 text-[var(--text-subtle)] transition-transform ${expanded ? '' : 'rotate-180'}`}
+          className={tw`size-3 text-(--text-subtle) transition-transform ${expanded ? '' : 'rotate-180'}`}
         />
       </button>
       <div
@@ -316,23 +353,29 @@ const ThinkingBlock = () => {
 };
 
 const StreamingMessage = ({ content }: { content: string }) => (
-  <div className={tw`space-y-1 px-1 text-[var(--text-secondary)]`}>
+  <div className={tw`space-y-1 px-1 text-(--text-secondary)`}>
     <Markdown
-      remarkPlugins={[remarkGfm]}
       components={{
         code: ({ children, className }) => {
           const isBlock = className?.startsWith('language-');
           return isBlock ? (
-            <pre className={tw`my-1 overflow-x-auto rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-1)] p-2 text-xs text-[var(--text-secondary)]`}>
+            <pre className={tw`
+              my-1 overflow-x-auto rounded-[4px] border border-(--border-1) bg-(--surface-1) p-2 text-xs
+              text-(--text-secondary)
+            `}>
               <code>{children}</code>
             </pre>
           ) : (
-            <code className={tw`rounded border border-[var(--border-1)] bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[0.85em] text-[var(--text-primary)]`}>{children}</code>
+            <code className={tw`
+              rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
+              text-(--text-primary)
+            `}>{children}</code>
           );
         },
+        p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-(--text-primary)`}>{children}</p>,
         pre: ({ children }) => <>{children}</>,
-        p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-[var(--text-primary)]`}>{children}</p>,
       }}
+      remarkPlugins={[remarkGfm]}
     >
       {content}
     </Markdown>
@@ -340,12 +383,20 @@ const StreamingMessage = ({ content }: { content: string }) => (
   </div>
 );
 
-const SendButton = ({ onClick, disabled }: { onClick: () => void; disabled: boolean }) => (
+const SendButton = ({ disabled, onClick }: { disabled: boolean; onClick: () => void; }) => (
   <button
-    type='button'
-    onClick={onClick}
+    className={tw`
+      flex size-[22px] items-center justify-center rounded-full bg-(--c-383838) text-white transition-colors
+
+      hover:bg-(--c-575757)
+
+      disabled:bg-(--c-808080)
+
+      dark:bg-(--c-E0E0E0) dark:text-black dark:hover:bg-(--c-CFCFCF)
+    `}
     disabled={disabled}
-    className={tw`flex size-[22px] items-center justify-center rounded-full bg-[var(--c-383838)] text-white transition-colors hover:bg-[var(--c-575757)] disabled:bg-[var(--c-808080)] dark:bg-[var(--c-E0E0E0)] dark:text-black dark:hover:bg-[var(--c-CFCFCF)]`}
+    onClick={onClick}
+    type='button'
   >
     <FiArrowUp className={tw`size-3.5`} />
   </button>
@@ -353,27 +404,33 @@ const SendButton = ({ onClick, disabled }: { onClick: () => void; disabled: bool
 
 const AbortButton = ({ onClick }: { onClick: () => void }) => (
   <button
-    type='button'
+    className={tw`
+      flex size-5 items-center justify-center rounded-full bg-(--c-383838) transition-colors
+
+      hover:bg-(--c-575757)
+
+      dark:bg-(--c-E0E0E0) dark:hover:bg-(--c-CFCFCF)
+    `}
     onClick={onClick}
-    className={tw`flex size-5 items-center justify-center rounded-full bg-[var(--c-383838)] transition-colors hover:bg-[var(--c-575757)] dark:bg-[var(--c-E0E0E0)] dark:hover:bg-[var(--c-CFCFCF)]`}
+    type='button'
   >
-    <svg width='8' height='8' viewBox='0 0 8 8' fill='none'>
-      <rect width='8' height='8' rx='1' fill='white' className={tw`dark:fill-black`} />
+    <svg fill='none' height='8' viewBox='0 0 8 8' width='8'>
+      <rect className={tw`dark:fill-black`} fill='white' height='8' rx='1' width='8' />
     </svg>
   </button>
 );
 
-const ToolCallItem = ({ toolCall: tc, isActive }: { toolCall: ToolCall; isActive: boolean }) => {
+const ToolCallItem = ({ isActive, toolCall: tc }: { isActive: boolean; toolCall: ToolCall; }) => {
   const [verb, label] = formatToolCall(tc.name, isActive);
   const brief = getToolBrief(tc.arguments);
   const fullText = brief ? `${verb} ${label} · ${brief}` : `${verb} ${label}`;
 
   return (
-    <div className={tw`relative w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium`}>
-      <span className={tw`text-[var(--text-primary)] dark:text-[var(--text-tertiary)]`}>
+    <div className={tw`relative w-full overflow-hidden text-sm font-medium text-ellipsis whitespace-nowrap`}>
+      <span className={tw`text-(--text-primary) dark:text-(--text-tertiary)`}>
         {verb}
       </span>{' '}
-      <span className={tw`text-[var(--text-muted)]`}>
+      <span className={tw`text-(--text-muted)`}>
         {brief ? `${label} · ${brief}` : label}
       </span>
       {isActive && (
@@ -381,13 +438,13 @@ const ToolCallItem = ({ toolCall: tc, isActive }: { toolCall: ToolCall; isActive
           aria-hidden
           className={tw`pointer-events-none absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap`}
           style={{
+            animation: 'toolcall-shimmer 1.4s ease-in-out infinite',
             background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%)',
-            backgroundSize: '200% 100%',
             backgroundClip: 'text',
-            WebkitBackgroundClip: 'text',
+            backgroundSize: '200% 100%',
             color: 'transparent',
             mixBlendMode: 'screen',
-            animation: 'toolcall-shimmer 1.4s ease-in-out infinite',
+            WebkitBackgroundClip: 'text',
           }}
         >
           {fullText}
@@ -397,12 +454,14 @@ const ToolCallItem = ({ toolCall: tc, isActive }: { toolCall: ToolCall; isActive
   );
 };
 
-const TerminalMessage = ({ message, isActive }: { message: Message; isActive: boolean }) => {
+const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Message; }) => {
   if (message.role === 'user') {
     return (
       <div className={tw`flex gap-2`}>
-        <span className={tw`text-[var(--brand-tertiary-2)]`}>&gt;</span>
-        <span className={tw`rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-1 text-sm font-medium text-[var(--text-primary)]`}>
+        <span className={tw`text-(--brand-tertiary-2)`}>&gt;</span>
+        <span className={tw`
+          rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2 py-1 text-sm font-medium text-(--text-primary)
+        `}>
           {message.content}
         </span>
       </div>
@@ -417,23 +476,29 @@ const TerminalMessage = ({ message, isActive }: { message: Message; isActive: bo
     return (
       <div className={tw`space-y-1 px-1`}>
         {message.content && (
-          <div className={tw`text-[var(--text-secondary)]`}>
+          <div className={tw`text-(--text-secondary)`}>
             <Markdown
-              remarkPlugins={[remarkGfm]}
               components={{
                 code: ({ children, className }) => {
                   const isBlock = className?.startsWith('language-');
                   return isBlock ? (
-                    <pre className={tw`my-1 overflow-x-auto rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-1)] p-2 text-xs text-[var(--text-secondary)]`}>
+                    <pre className={tw`
+                      my-1 overflow-x-auto rounded-[4px] border border-(--border-1) bg-(--surface-1) p-2 text-xs
+                      text-(--text-secondary)
+                    `}>
                       <code>{children}</code>
                     </pre>
                   ) : (
-                    <code className={tw`rounded border border-[var(--border-1)] bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[0.85em] text-[var(--text-primary)]`}>{children}</code>
+                    <code className={tw`
+                      rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
+                      text-(--text-primary)
+                    `}>{children}</code>
                   );
                 },
+                p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-(--text-primary)`}>{children}</p>,
                 pre: ({ children }) => <>{children}</>,
-                p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-[var(--text-primary)]`}>{children}</p>,
               }}
+              remarkPlugins={[remarkGfm]}
             >
               {message.content}
             </Markdown>
@@ -441,7 +506,7 @@ const TerminalMessage = ({ message, isActive }: { message: Message; isActive: bo
         )}
         <div className={tw`space-y-0.5`}>
           {message.toolCalls.map((tc) => (
-            <ToolCallItem key={tc.id} toolCall={tc} isActive={isActive} />
+            <ToolCallItem isActive={isActive} key={tc.id} toolCall={tc} />
           ))}
         </div>
       </div>
@@ -451,62 +516,70 @@ const TerminalMessage = ({ message, isActive }: { message: Message; isActive: bo
   if (!message.content) return null;
 
   return (
-    <div className={tw`space-y-1 px-1 text-[var(--text-secondary)]`}>
+    <div className={tw`space-y-1 px-1 text-(--text-secondary)`}>
       <Markdown
-        remarkPlugins={[remarkGfm]}
         components={{
-          code: ({ children, className }) => {
-            const isBlock = className?.startsWith('language-');
-            return isBlock ? (
-              <pre className={tw`my-1 overflow-x-auto rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-1)] p-2 text-xs text-[var(--text-secondary)]`}>
-                <code>{children}</code>
-              </pre>
-            ) : (
-              <code className={tw`rounded border border-[var(--border-1)] bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[0.85em] text-[var(--text-primary)]`}>{children}</code>
-            );
-          },
-          pre: ({ children }) => <>{children}</>,
-          p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-[var(--text-primary)]`}>{children}</p>,
-          ul: ({ children }) => <ul className={tw`my-1 list-disc space-y-0.5 pl-5`}>{children}</ul>,
-          ol: ({ children }) => <ol className={tw`my-1 list-decimal space-y-0.5 pl-5`}>{children}</ol>,
-          li: ({ children }) => <li className={tw`text-sm leading-[1.4] text-[var(--text-secondary)]`}>{children}</li>,
-          h1: ({ children }) => <div className={tw`my-1 text-base font-semibold text-[var(--text-primary)]`}>{children}</div>,
-          h2: ({ children }) => <div className={tw`my-1 text-[15px] font-semibold text-[var(--text-primary)]`}>{children}</div>,
-          h3: ({ children }) => <div className={tw`my-1 text-sm font-semibold text-[var(--text-primary)]`}>{children}</div>,
           a: ({ children, href }) => (
             <a
+              className={tw`text-(--brand-secondary) underline hover:opacity-80`}
               href={href}
-              className={tw`text-[var(--brand-secondary)] underline hover:opacity-80`}
-              target='_blank'
               rel='noreferrer'
+              target='_blank'
             >
               {children}
             </a>
           ),
-          strong: ({ children }) => <strong className={tw`font-semibold text-[var(--text-primary)]`}>{children}</strong>,
           blockquote: ({ children }) => (
-            <blockquote className={tw`my-1 border-l-2 border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-1 text-[var(--text-tertiary)]`}>
+            <blockquote className={tw`
+              my-1 border-l-2 border-(--border-1) bg-(--surface-4) px-2 py-1 text-(--text-tertiary)
+            `}>
               {children}
             </blockquote>
           ),
+          code: ({ children, className }) => {
+            const isBlock = className?.startsWith('language-');
+            return isBlock ? (
+              <pre className={tw`
+                my-1 overflow-x-auto rounded-[4px] border border-(--border-1) bg-(--surface-1) p-2 text-xs
+                text-(--text-secondary)
+              `}>
+                <code>{children}</code>
+              </pre>
+            ) : (
+              <code className={tw`
+                rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
+                text-(--text-primary)
+              `}>{children}</code>
+            );
+          },
+          h1: ({ children }) => <div className={tw`my-1 text-base font-semibold text-(--text-primary)`}>{children}</div>,
+          h2: ({ children }) => <div className={tw`my-1 text-[15px] font-semibold text-(--text-primary)`}>{children}</div>,
+          h3: ({ children }) => <div className={tw`my-1 text-sm font-semibold text-(--text-primary)`}>{children}</div>,
+          li: ({ children }) => <li className={tw`text-sm leading-[1.4] text-(--text-secondary)`}>{children}</li>,
+          ol: ({ children }) => <ol className={tw`my-1 list-decimal space-y-0.5 pl-5`}>{children}</ol>,
+          p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-(--text-primary)`}>{children}</p>,
+          pre: ({ children }) => <>{children}</>,
+          strong: ({ children }) => <strong className={tw`font-semibold text-(--text-primary)`}>{children}</strong>,
           table: ({ children }) => (
             <div className={tw`my-1 overflow-x-auto`}>
               <table className={tw`w-full border-collapse text-sm`}>{children}</table>
             </div>
           ),
-          thead: ({ children }) => (
-            <thead className={tw`border-b border-[var(--border-1)]`}>{children}</thead>
+          td: ({ children }) => (
+            <td className={tw`px-2 py-1 text-(--text-secondary)`}>{children}</td>
           ),
           th: ({ children }) => (
-            <th className={tw`px-2 py-1 text-left text-xs font-semibold text-[var(--text-primary)]`}>{children}</th>
+            <th className={tw`px-2 py-1 text-left text-xs font-semibold text-(--text-primary)`}>{children}</th>
           ),
-          td: ({ children }) => (
-            <td className={tw`px-2 py-1 text-[var(--text-secondary)]`}>{children}</td>
+          thead: ({ children }) => (
+            <thead className={tw`border-b border-(--border-1)`}>{children}</thead>
           ),
           tr: ({ children }) => (
-            <tr className={tw`border-b border-[var(--border-1)] last:border-0`}>{children}</tr>
+            <tr className={tw`border-b border-(--border-1) last:border-0`}>{children}</tr>
           ),
+          ul: ({ children }) => <ul className={tw`my-1 list-disc space-y-0.5 pl-5`}>{children}</ul>,
         }}
+        remarkPlugins={[remarkGfm]}
       >
         {message.content}
       </Markdown>
@@ -525,18 +598,22 @@ const ToolResultMessage = ({ content }: { content: string }) => {
   const isLong = content.length > 80;
 
   return (
-    <div className={tw`min-w-0 max-w-full overflow-hidden rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2 py-1 text-xs text-[var(--text-secondary)]`}>
+    <div className={tw`
+      max-w-full min-w-0 overflow-hidden rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2 py-1 text-xs
+      text-(--text-secondary)
+    `}>
       <button
+        className={tw`flex w-full min-w-0 items-center gap-1 text-left hover:text-(--text-muted)`}
+        onClick={() => isLong && void setExpanded(!expanded)}
         type='button'
-        onClick={() => isLong && setExpanded(!expanded)}
-        className={tw`flex w-full min-w-0 items-center gap-1 text-left hover:text-[var(--text-muted)]`}
       >
-        <span className={tw`shrink-0 text-[var(--text-muted)]`}>←</span>
-        <span className={tw`min-w-0 font-mono text-xs text-[var(--text-secondary)] ${expanded ? 'whitespace-pre-wrap break-all' : 'overflow-hidden text-ellipsis whitespace-nowrap'}`}>
+        <span className={tw`shrink-0 text-(--text-muted)`}>←</span>
+        <span className={tw`min-w-0 font-mono text-xs text-(--text-secondary) ${expanded ? 'whitespace-pre-wrap break-all' : 'overflow-hidden text-ellipsis whitespace-nowrap'}
+        `}>
           {expanded ? content : preview}
         </span>
         {isLong && (
-          <span className={tw`ml-1 shrink-0 text-[10px] text-[var(--text-muted)]`}>
+          <span className={tw`ml-1 shrink-0 text-[10px] text-(--text-muted)`}>
             {expanded ? '▲' : '▼'}
           </span>
         )}

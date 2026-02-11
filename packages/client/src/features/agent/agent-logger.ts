@@ -1,28 +1,27 @@
 /** JSON stringify with BigInt support */
 const safeStringify = (value: unknown): string =>
-  JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
+  JSON.stringify(value, (_key: string, v: unknown) => (typeof v === 'bigint' ? v.toString() : v));
 
 /** Truncate a string to maxLen, appending '...[truncated]' if needed */
 const truncate = (s: string, maxLen = 2048): string =>
   s.length <= maxLen ? s : s.slice(0, maxLen) + '...[truncated]';
 
 interface AgentLogIpc {
-  write: (fileName: string, jsonLine: string) => void;
   cleanup: () => void;
+  write: (fileName: string, jsonLine: string) => void;
 }
 
 interface LogEntry {
-  ts: string;
+  [key: string]: unknown;
   event: string;
   sessionId: string;
-  [key: string]: unknown;
+  ts: string;
 }
 
 /** Get the agentLog IPC bridge if running inside Electron, null otherwise */
 const getAgentLogIpc = (): AgentLogIpc | null => {
   if (typeof window === 'undefined') return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const electron = (window as any).electron as { agentLog?: AgentLogIpc } | undefined;
+  const electron = (window as unknown as { electron?: { agentLog?: AgentLogIpc } }).electron;
   return electron?.agentLog ?? null;
 };
 
@@ -31,12 +30,12 @@ const getAgentLogIpc = (): AgentLogIpc | null => {
  * Writes to local files via Electron IPC. Silent no-op when running outside Electron.
  */
 export class AgentLogger {
-  private fileName: string;
-  private sessionId: string;
   private buffer: string[] = [];
-  private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private sessionStart: number;
+  private fileName: string;
+  private flushTimer: null | ReturnType<typeof setTimeout> = null;
   private ipc: AgentLogIpc | null;
+  private sessionId: string;
+  private sessionStart: number;
 
   constructor(flowId: string) {
     this.sessionId = crypto.randomUUID();
@@ -50,9 +49,7 @@ export class AgentLogger {
   private write(entry: LogEntry) {
     if (!this.ipc) return;
     this.buffer.push(safeStringify(entry));
-    if (!this.flushTimer) {
-      this.flushTimer = setTimeout(() => this.flush(), 100);
-    }
+    this.flushTimer ??= setTimeout(() => void this.flush(), 100);
   }
 
   private flush() {
@@ -66,112 +63,112 @@ export class AgentLogger {
 
   logSessionStart(flowId: string, messageContent: string) {
     this.write({
-      ts: new Date().toISOString(),
       event: 'session_start',
-      sessionId: this.sessionId,
       flowId,
+      sessionId: this.sessionId,
+      ts: new Date().toISOString(),
       userMessagePreview: truncate(messageContent, 500),
     });
   }
 
   logSessionEnd(success: boolean, aborted: boolean) {
     this.write({
-      ts: new Date().toISOString(),
+      aborted,
+      durationMs: Math.round(performance.now() - this.sessionStart),
       event: 'session_end',
       sessionId: this.sessionId,
       success,
-      aborted,
-      durationMs: Math.round(performance.now() - this.sessionStart),
+      ts: new Date().toISOString(),
     });
     // Flush synchronously on close
     this.close();
   }
 
-  logSystemPrompt(prompt: string, contextStats: { nodes: number; edges: number; variables: number }) {
+  logSystemPrompt(prompt: string, contextStats: { edges: number; nodes: number; variables: number }) {
     this.write({
-      ts: new Date().toISOString(),
-      event: 'system_prompt',
-      sessionId: this.sessionId,
-      promptLength: prompt.length,
       contextStats,
+      event: 'system_prompt',
+      promptLength: prompt.length,
+      sessionId: this.sessionId,
+      ts: new Date().toISOString(),
     });
   }
 
   logUserMessage(content: string) {
     this.write({
-      ts: new Date().toISOString(),
+      content: truncate(content),
       event: 'user_message',
       sessionId: this.sessionId,
-      content: truncate(content),
+      ts: new Date().toISOString(),
     });
   }
 
   logAssistantMessage(content: string) {
     this.write({
-      ts: new Date().toISOString(),
+      content: truncate(content),
       event: 'assistant_message',
       sessionId: this.sessionId,
-      content: truncate(content),
+      ts: new Date().toISOString(),
     });
   }
 
   logApiRequest(model: string, messageCount: number, hasTools: boolean) {
     this.write({
-      ts: new Date().toISOString(),
       event: 'api_request',
-      sessionId: this.sessionId,
-      model,
-      messageCount,
       hasTools,
+      messageCount,
+      model,
+      sessionId: this.sessionId,
+      ts: new Date().toISOString(),
     });
   }
 
   logApiResponse(
     latencyMs: number,
-    finishReason: string | null | undefined,
-    usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null | undefined,
+    finishReason: null | string | undefined,
+    usage: null | undefined | { completion_tokens?: number; prompt_tokens?: number; total_tokens?: number },
   ) {
     this.write({
-      ts: new Date().toISOString(),
       event: 'api_response',
-      sessionId: this.sessionId,
-      latencyMs: Math.round(latencyMs),
       finishReason: finishReason ?? 'unknown',
+      latencyMs: Math.round(latencyMs),
+      sessionId: this.sessionId,
+      ts: new Date().toISOString(),
       usage: usage ?? null,
     });
   }
 
   logToolCallStart(toolCallId: string, toolName: string, args: Record<string, unknown>) {
     this.write({
-      ts: new Date().toISOString(),
+      args: truncate(safeStringify(args)),
       event: 'tool_call_start',
       sessionId: this.sessionId,
       toolCallId,
       toolName,
-      args: truncate(safeStringify(args)),
+      ts: new Date().toISOString(),
     });
   }
 
   logToolCallEnd(toolCallId: string, toolName: string, durationMs: number, result: string, error?: string) {
     this.write({
-      ts: new Date().toISOString(),
+      durationMs: Math.round(durationMs),
+      error: error ?? undefined,
       event: 'tool_call_end',
+      result: truncate(result),
       sessionId: this.sessionId,
       toolCallId,
       toolName,
-      durationMs: Math.round(durationMs),
-      result: truncate(result),
-      error: error ?? undefined,
+      ts: new Date().toISOString(),
     });
   }
 
   logValidation(orphanCount: number, orphanNames: string[]) {
     this.write({
-      ts: new Date().toISOString(),
       event: 'validation',
-      sessionId: this.sessionId,
       orphanCount,
       orphanNames,
+      sessionId: this.sessionId,
+      ts: new Date().toISOString(),
     });
   }
 
@@ -179,12 +176,12 @@ export class AgentLogger {
     const message = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
     this.write({
-      ts: new Date().toISOString(),
       event: 'error',
-      sessionId: this.sessionId,
       message,
-      stack,
       phase,
+      sessionId: this.sessionId,
+      stack,
+      ts: new Date().toISOString(),
     });
   }
 

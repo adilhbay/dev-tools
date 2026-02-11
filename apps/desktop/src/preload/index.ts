@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   agentLog: {
-    write: (fileName: string, jsonLine: string) => ipcRenderer.send('agent-log:write', fileName, jsonLine),
-    cleanup: () => ipcRenderer.send('agent-log:cleanup'),
+    cleanup: () => void ipcRenderer.send('agent-log:cleanup'),
+    write: (fileName: string, jsonLine: string) => void ipcRenderer.send('agent-log:write', fileName, jsonLine),
   },
 });

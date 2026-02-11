@@ -205,7 +205,7 @@ const onReady = Effect.gen(function* () {
 
   ipcMain.on('agent-log:write', (_event, fileName: string, jsonLine: string) => {
     const filePath = path.join(logDir, path.basename(fileName));
-    fs.appendFile(filePath, jsonLine, () => {});
+    void fs.promises.appendFile(filePath, jsonLine);
   });
 
   ipcMain.on('agent-log:cleanup', () => {
@@ -217,7 +217,7 @@ const onReady = Effect.gen(function* () {
         const filePath = path.join(logDir, file);
         fs.stat(filePath, (err, stats) => {
           if (err) return;
-          if (now - stats.mtimeMs > maxAge) fs.unlink(filePath, () => {});
+          if (now - stats.mtimeMs > maxAge) void fs.promises.unlink(filePath).catch(() => undefined);
         });
       }
     });

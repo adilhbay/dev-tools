@@ -17,8 +17,8 @@ export * from '@the-dev-tools/spec-lib/common';
 // =============================================================================
 
 export interface ToolDefinition {
-  name: string;
   description: string;
+  name: string;
   parameters: object;
 }
 
@@ -61,29 +61,29 @@ function resolveRefs(obj: unknown, defs: Record<string, unknown>): unknown {
 /** Convert an Effect Schema to a tool definition with JSON Schema parameters */
 function schemaToToolDefinition<A, I, R>(schema: Schema.Schema<A, I, R>): ToolDefinition {
   const jsonSchema = JSONSchema.make(schema) as {
-    $schema: string;
     $defs: Record<string, unknown>;
     $ref: string;
+    $schema: string;
   };
 
-  const defs = jsonSchema.$defs ?? {};
-  const defName = (jsonSchema.$ref ?? '').replace('#/$defs/', '');
-  const def = defs[defName] as {
+  const defs = jsonSchema.$defs;
+  const defName = jsonSchema.$ref.replace('#/$defs/', '');
+  const def = defs[defName] as undefined | {
     description?: string;
-    type: string;
     properties: Record<string, unknown>;
     required?: string[];
-  } | undefined;
+    type: string;
+  };
 
   return {
-    name: defName || 'unknown',
     description: def?.description ?? '',
+    name: defName || 'unknown',
     parameters: def
       ? {
-          type: def.type,
+          additionalProperties: false,
           properties: resolveRefs(def.properties, defs),
           required: def.required,
-          additionalProperties: false,
+          type: def.type,
         }
       : jsonSchema,
   };
@@ -109,9 +109,9 @@ if (createHttpNodeDef) {
     required?: string[];
   };
   params.properties['body'] = {
-    type: 'string',
     description:
       'Optional JSON request body for POST, PUT, or PATCH requests. Only valid for methods that support a body.',
+    type: 'string',
   };
   // Remove additionalProperties:false so the extra field is accepted
   delete (params as Record<string, unknown>)['additionalProperties'];
@@ -148,19 +148,19 @@ const schemaMap: Record<string, Schema.Schema<unknown, unknown>> = Object.fromEn
 export function validateToolInput(
   toolName: string,
   input: unknown,
-): { success: true; data: unknown } | { success: false; errors: string[] } {
+): { data: unknown; success: true; } | { errors: string[]; success: false; } {
   const schema = schemaMap[toolName];
   if (!schema) {
-    return { success: false, errors: [`Unknown tool: ${toolName}`] };
+    return { errors: [`Unknown tool: ${toolName}`], success: false };
   }
 
   try {
     const decoded = Schema.decodeUnknownSync(schema)(input);
-    return { success: true, data: decoded };
+    return { data: decoded, success: true };
   } catch (error) {
     if (error instanceof Error) {
-      return { success: false, errors: [error.message] };
+      return { errors: [error.message], success: false };
     }
-    return { success: false, errors: ['Unknown validation error'] };
+    return { errors: ['Unknown validation error'], success: false };
   }
 }

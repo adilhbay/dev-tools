@@ -1,9 +1,9 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 import { eq } from '@tanstack/react-db';
 import { Ulid } from 'id128';
 import OpenAI from 'openai';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlowItemState, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
-import { allToolSchemas } from './tool-schemas';
+import { NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import {
   EdgeCollectionSchema,
   FlowCollectionSchema,
@@ -26,23 +26,24 @@ import {
 import { useApiCollection } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
+import { AgentLogger } from './agent-logger';
 import { buildCompactStateSummary, buildSystemPrompt, buildXmlValidationMessage, detectDeadEndNodes, detectOrphanNodes, refreshFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
-import { executeToolCall, type Collections, type ToolExecutorContext } from './tool-executor';
+import { type Collections, executeToolCall, type ToolExecutorContext } from './tool-executor';
+import { allToolSchemas } from './tool-schemas';
 import {
-  formatToolAsOpenAI,
   type AgentChatState,
+  formatToolAsOpenAI,
   type Message,
   type OpenAIMessage,
   type ToolCall,
   type ToolResult,
   type ToolSchema,
 } from './types';
-import { AgentLogger } from './agent-logger';
 
 const openai = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
   apiKey: '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',
+  baseURL: 'https://openrouter.ai/api/v1',
   dangerouslyAllowBrowser: true,
 });
 
@@ -52,23 +53,23 @@ const generateId = () => crypto.randomUUID();
 
 /** JSON stringify with BigInt support */
 const safeStringify = (value: unknown): string =>
-  JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
+  JSON.stringify(value, (_key: string, v: unknown) => (typeof v === 'bigint' ? v.toString() : v));
 
 // ---------------------------------------------------------------------------
 // Streaming helpers
 // ---------------------------------------------------------------------------
 
 interface StreamedMessage {
-  content: string | null;
-  tool_calls?: Array<{
+  content: null | string;
+  tool_calls?: {
+    function: { arguments: string; name: string; };
     id: string;
     type: 'function';
-    function: { name: string; arguments: string };
-  }>;
+  }[];
 }
 
 interface StreamMeta {
-  finishReason: string | null | undefined;
+  finishReason: null | string | undefined;
   usage: unknown;
 }
 
@@ -83,8 +84,8 @@ const consumeStream = async (
 ): Promise<{ message: StreamedMessage; meta: StreamMeta }> => {
   let content = '';
   let hasContent = false;
-  const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
-  let finishReason: string | null | undefined = null;
+  const toolCallsMap = new Map<number, { arguments: string; id: string; name: string; }>();
+  let finishReason: null | string | undefined = null;
   let usage: unknown = undefined;
 
   for await (const chunk of stream) {
@@ -113,9 +114,9 @@ const consumeStream = async (
           if (tc.function?.arguments) existing.arguments += tc.function.arguments;
         } else {
           toolCallsMap.set(tc.index, {
+            arguments: tc.function?.arguments ?? '',
             id: tc.id ?? '',
             name: tc.function?.name ?? '',
-            arguments: tc.function?.arguments ?? '',
           });
         }
       }
@@ -127,9 +128,9 @@ const consumeStream = async (
       ? Array.from(toolCallsMap.entries())
           .sort(([a], [b]) => a - b)
           .map(([, tc]) => ({
+            function: { arguments: tc.arguments, name: tc.name },
             id: tc.id,
             type: 'function' as const,
-            function: { name: tc.name, arguments: tc.arguments },
           }))
       : undefined;
 
@@ -146,21 +147,13 @@ type NodeCollection = ReturnType<typeof useApiCollection<typeof NodeCollectionSc
 type EdgeCollection = ReturnType<typeof useApiCollection<typeof EdgeCollectionSchema>>;
 
 const NODE_KIND_NAMES: Record<number, string> = {
-  [NodeKind.UNSPECIFIED]: 'Unknown',
-  [NodeKind.MANUAL_START]: 'ManualStart',
-  [NodeKind.HTTP]: 'HTTP',
   [NodeKind.CONDITION]: 'Condition',
   [NodeKind.FOR]: 'For',
   [NodeKind.FOR_EACH]: 'ForEach',
+  [NodeKind.HTTP]: 'HTTP',
   [NodeKind.JS]: 'JavaScript',
-};
-
-const FLOW_ITEM_STATE_NAMES: Record<number, string> = {
-  [FlowItemState.UNSPECIFIED]: 'Idle',
-  [FlowItemState.RUNNING]: 'Running',
-  [FlowItemState.SUCCESS]: 'Success',
-  [FlowItemState.FAILURE]: 'Failure',
-  [FlowItemState.CANCELED]: 'Canceled',
+  [NodeKind.MANUAL_START]: 'ManualStart',
+  [NodeKind.UNSPECIFIED]: 'Unknown',
 };
 
 /**
@@ -187,8 +180,8 @@ const applyLayoutToFlow = async (
     .filter((n) => n.nodeId != null)
     .map((n) => ({
       id: Ulid.construct(n.nodeId).toCanonical(),
-      name: n.name,
       kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+      name: n.name,
       position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
       state: 'Idle',
     }));
@@ -201,9 +194,9 @@ const applyLayoutToFlow = async (
     .filter((e) => e.edgeId != null && e.sourceId != null && e.targetId != null)
     .map((e) => ({
       id: Ulid.construct(e.edgeId).toCanonical(),
+      sourceHandle: e.sourceHandle !== undefined ? String(e.sourceHandle) : undefined,
       sourceId: Ulid.construct(e.sourceId).toCanonical(),
       targetId: Ulid.construct(e.targetId).toCanonical(),
-      sourceHandle: e.sourceHandle !== undefined ? String(e.sourceHandle) : undefined,
     }))
     .filter((e) => validNodeIds.has(e.sourceId) && validNodeIds.has(e.targetId));
 
@@ -220,126 +213,126 @@ const applyLayoutToFlow = async (
 
 const clientToolSchemas: ToolSchema[] = [
   {
-    name: 'inspectNode',
     description:
       'Inspect a node\'s full config and execution state. Returns type-specific config (HTTP: url/method/headers/params/body/assertions, JS: code, Condition: expression, For: iterations/condition, ForEach: path/condition) plus execution state/error. ' +
       'Set includeOutput: true to also get execution input/output payloads (can be large).',
+    name: 'inspectNode',
     parameters: {
-      type: 'object',
+      additionalProperties: false,
       properties: {
-        nodeId: { type: 'string', description: 'The node ID to inspect' },
         includeOutput: {
-          type: 'boolean',
           description: 'Include execution input/output payloads (default: false). Only use when you need to see actual request/response data.',
+          type: 'boolean',
         },
+        nodeId: { description: 'The node ID to inspect', type: 'string' },
       },
       required: ['nodeId'],
-      additionalProperties: false,
+      type: 'object',
     },
   },
   {
-    name: 'getFlowExecutionSummary',
     description: 'Get a summary of the latest flow execution showing which nodes ran and which were never reached.',
+    name: 'getFlowExecutionSummary',
     parameters: {
-      type: 'object',
+      additionalProperties: false,
       properties: {},
       required: [],
-      additionalProperties: false,
+      type: 'object',
     },
   },
   {
-    name: 'configureHttp',
     description:
       'Declaratively configure an HTTP node. Provide desired state — only include fields to change. ' +
       'Arrays (headers, searchParams, assertions) replace the entire existing set when provided. ' +
       'Set body to null to clear it.',
+    name: 'configureHttp',
     parameters: {
-      type: 'object',
+      additionalProperties: false,
       properties: {
-        nodeId: { type: 'string', description: 'The node ID (not httpId) of the HTTP node to configure' },
-        method: {
-          type: 'string',
-          description: 'HTTP method',
-          enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
-        },
-        url: { type: 'string', description: 'Request URL' },
-        headers: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              key: { type: 'string' },
-              value: { type: 'string' },
-              enabled: { type: 'boolean' },
-            },
-            required: ['key'],
-          },
-          description: 'Replaces all existing headers',
-        },
-        searchParams: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              key: { type: 'string' },
-              value: { type: 'string' },
-              enabled: { type: 'boolean' },
-            },
-            required: ['key'],
-          },
-          description: 'Replaces all existing query parameters',
-        },
-        body: {
-          type: ['string', 'null'],
-          description: 'Raw body content (JSON string). Set to null to clear.',
-        },
         assertions: {
-          type: 'array',
+          description: 'Replaces all existing assertions',
           items: {
-            type: 'object',
             properties: {
-              value: { type: 'string' },
               enabled: { type: 'boolean' },
+              value: { type: 'string' },
             },
             required: ['value'],
+            type: 'object',
           },
-          description: 'Replaces all existing assertions',
+          type: 'array',
         },
+        body: {
+          description: 'Raw body content (JSON string). Set to null to clear.',
+          type: ['string', 'null'],
+        },
+        headers: {
+          description: 'Replaces all existing headers',
+          items: {
+            properties: {
+              enabled: { type: 'boolean' },
+              key: { type: 'string' },
+              value: { type: 'string' },
+            },
+            required: ['key'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        method: {
+          description: 'HTTP method',
+          enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
+          type: 'string',
+        },
+        nodeId: { description: 'The node ID (not httpId) of the HTTP node to configure', type: 'string' },
+        searchParams: {
+          description: 'Replaces all existing query parameters',
+          items: {
+            properties: {
+              enabled: { type: 'boolean' },
+              key: { type: 'string' },
+              value: { type: 'string' },
+            },
+            required: ['key'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        url: { description: 'Request URL', type: 'string' },
       },
       required: ['nodeId'],
-      additionalProperties: false,
+      type: 'object',
     },
   },
   {
-    name: 'connectChain',
     description:
       'PREFERRED tool for ALL node connections. Connects nodes into a chain with optional parallel fan-out. ' +
       'Flat array: sequential chain. Nested array: parallel branches. ' +
       'Example: ["Start",["A","B"],"End"] creates Start→A, Start→B, A→End, B→End. ' +
       'Works for ALL node types. For branching nodes (Condition, For, ForEach), auto-applies "then" handle by default. ' +
       'Use sourceHandle "else" or "loop" to override for non-default branches.',
+    name: 'connectChain',
     parameters: {
-      type: 'object',
+      additionalProperties: false,
       properties: {
         nodeIds: {
-          type: 'array',
-          items: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
           description:
             'Ordered list of node IDs. Use nested arrays for fan-out/fan-in: ' +
             '["A","B","C"] chains A→B→C. ' +
             '["A",["B","C"],"D"] fans out A→B, A→C then fans in B→D, C→D. ' +
             'Minimum 2 elements. No consecutive nested arrays.',
+          items: { oneOf: [{ type: 'string' }, { items: { type: 'string' }, type: 'array' }] },
+          type: 'array',
         },
         sourceHandle: {
-          type: 'string',
-          enum: ['then', 'else', 'loop'],
           description:
             'Handle for branching source nodes. Defaults to "then". ' +
             'Use "else" for Condition false-branch, "loop" for For/ForEach loop-body.',
+          enum: ['then', 'else', 'loop'],
+          type: 'string',
         },
       },
       required: ['nodeIds'],
-      additionalProperties: false,
+      type: 'object',
     },
   },
 ];
@@ -350,9 +343,9 @@ interface UseAgentChatOptions {
 }
 
 const createInitialAgentChatState = (): AgentChatState => ({
-  messages: [],
-  isLoading: false,
   error: null,
+  isLoading: false,
+  messages: [],
   streamingContent: '',
 });
 
@@ -413,34 +406,34 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       abortControllerRef.current = abortController;
 
       const collections: Collections = {
-        nodeCollection,
-        edgeCollection,
-        variableCollection,
-        jsCollection,
         conditionCollection,
+        edgeCollection,
+        executionCollection,
         forCollection,
         forEachCollection,
-        nodeHttpCollection,
-        httpCollection,
-        httpSearchParamCollection,
-        httpHeaderCollection,
-        httpBodyRawCollection,
         httpAssertCollection,
-        executionCollection,
+        httpBodyRawCollection,
+        httpCollection,
+        httpHeaderCollection,
+        httpSearchParamCollection,
+        jsCollection,
+        nodeCollection,
+        nodeHttpCollection,
+        variableCollection,
       };
 
       const userMessage: Message = {
+        content,
         id: generateId(),
         role: 'user',
-        content,
         timestamp: Date.now(),
       };
 
       setState((prev) => ({
         ...prev,
-        messages: [...prev.messages, userMessage],
-        isLoading: true,
         error: null,
+        isLoading: true,
+        messages: [...prev.messages, userMessage],
       }));
 
       let logger: AgentLogger | null = null;
@@ -448,12 +441,12 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       try {
         const currentFlowContext = {
           ...(await refreshFlowContext(flowId, {
-            nodeCollection,
             edgeCollection,
-            variableCollection,
             executionCollection,
-            nodeHttpCollection,
             httpCollection,
+            nodeCollection,
+            nodeHttpCollection,
+            variableCollection,
           })),
           selectedNodeIds: selectedNodeIdsRef.current,
         };
@@ -494,16 +487,16 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         const tools = [...allToolSchemas, ...clientToolSchemas].map(formatToolAsOpenAI);
 
         logger.logSystemPrompt(systemPrompt, {
-          nodes: currentFlowContext.nodes.length,
           edges: currentFlowContext.edges.length,
+          nodes: currentFlowContext.nodes.length,
           variables: currentFlowContext.variables.length,
         });
         logger.logUserMessage(content);
 
         const openAIMessages: OpenAIMessage[] = [
-          { role: 'system', content: systemPrompt },
+          { content: systemPrompt, role: 'system' },
           ...messagesRef.current.map(messageToOpenAI),
-          { role: 'user', content },
+          { content, role: 'user' },
         ];
 
         logger.logApiRequest(MODEL, openAIMessages.length, true);
@@ -515,11 +508,11 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
         let stream = await openai.chat.completions.create(
           {
-            model: MODEL,
             messages: openAIMessages,
-            tools,
-            tool_choice: 'auto',
+            model: MODEL,
             stream: true,
+            tool_choice: 'auto',
+            tools,
           },
           { signal: abortController.signal },
         );
@@ -533,21 +526,21 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         let validationRetries = 0;
         const MAX_VALIDATION_RETRIES = 2;
 
-        do {
+        for (;;) {
           // === Existing tool call loop ===
           while (assistantMessage?.tool_calls && assistantMessage.tool_calls.length > 0) {
             const toolCalls: ToolCall[] = assistantMessage.tool_calls.map((tc) => ({
+              arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>,
               id: tc.id,
               name: tc.function.name,
-              arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>,
             }));
 
             const toolMessage: Message = {
+              content: assistantMessage.content ?? '',
               id: generateId(),
               role: 'assistant',
-              content: assistantMessage.content ?? '',
-              toolCalls,
               timestamp: Date.now(),
+              toolCalls,
             };
 
             setState((prev) => ({
@@ -588,27 +581,27 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
               // Refresh flow context so subsequent tool calls see newly created nodes
               toolContext.flowContext = {
                 ...(await refreshFlowContext(flowId, {
-                  nodeCollection,
                   edgeCollection,
-                  variableCollection,
                   executionCollection,
-                  nodeHttpCollection,
                   httpCollection,
+                  nodeCollection,
+                  nodeHttpCollection,
+                  variableCollection,
                 })),
                 selectedNodeIds: selectedNodeIdsRef.current,
               };
 
               // Inject updated flow state so LLM sees current topology
               const stateSummary = buildCompactStateSummary(toolContext.flowContext);
-              openAIMessages.push({ role: 'system', content: stateSummary });
+              openAIMessages.push({ content: stateSummary, role: 'system' });
             }
 
             const toolResultMessages: Message[] = toolResults.map((tr) => ({
+              content: tr.error ?? safeStringify(tr.result),
               id: generateId(),
               role: 'tool' as const,
-              content: tr.error ?? safeStringify(tr.result),
-              toolCallId: tr.toolCallId,
               timestamp: Date.now(),
+              toolCallId: tr.toolCallId,
             }));
 
             setState((prev) => ({
@@ -617,8 +610,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
             }));
 
             openAIMessages.push({
-              role: 'assistant',
               content: assistantMessage.content,
+              role: 'assistant',
               tool_calls: assistantMessage.tool_calls,
             });
 
@@ -648,9 +641,9 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
                 content = tr.error ?? safeStringify(tr.result);
               }
               openAIMessages.push({
+                content,
                 role: 'tool',
                 tool_call_id: tr.toolCallId,
-                content,
               });
             }
 
@@ -659,11 +652,11 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
             stream = await openai.chat.completions.create(
               {
-                model: MODEL,
                 messages: openAIMessages,
-                tools,
-                tool_choice: 'auto',
+                model: MODEL,
                 stream: true,
+                tool_choice: 'auto',
+                tools,
               },
               { signal: abortController.signal },
             );
@@ -711,21 +704,21 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           // Add the assistant's text response to messages before injecting validation
           if (assistantMessage?.content) {
             openAIMessages.push({
-              role: 'assistant',
               content: assistantMessage.content,
+              role: 'assistant',
             });
           }
 
           openAIMessages.push({
-            role: 'user',
             content: validationContent,
+            role: 'user',
           });
 
           logger.logApiRequest(MODEL, openAIMessages.length, true);
           apiStart = performance.now();
 
           stream = await openai.chat.completions.create(
-            { model: MODEL, messages: openAIMessages, tools, tool_choice: 'auto', stream: true },
+            { messages: openAIMessages, model: MODEL, stream: true, tool_choice: 'auto', tools },
             { signal: abortController.signal },
           );
 
@@ -734,12 +727,12 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
           logger.logApiResponse(performance.now() - apiStart, meta.finishReason, meta.usage);
           assistantMessage = streamedMsg;
-        } while (true);
+        }
 
         const finalMessage: Message = {
+          content: assistantMessage?.content ?? '',
           id: generateId(),
           role: 'assistant',
-          content: assistantMessage?.content ?? '',
           timestamp: Date.now(),
         };
 
@@ -748,8 +741,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
         setState((prev) => ({
           ...prev,
-          messages: [...prev.messages, finalMessage],
           isLoading: false,
+          messages: [...prev.messages, finalMessage],
         }));
       } catch (error) {
         // Ignore abort errors
@@ -763,8 +756,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         const errorMessage = error instanceof Error ? error.message : 'An error occurred';
         setState((prev) => ({
           ...prev,
-          isLoading: false,
           error: errorMessage,
+          isLoading: false,
           streamingContent: '',
         }));
       } finally {
@@ -789,42 +782,42 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
   }, []);
 
   return {
-    messages: state.messages,
-    isLoading: state.isLoading,
-    error: state.error,
-    streamingContent: state.streamingContent,
-    sendMessage,
-    clearMessages,
     cancel,
+    clearMessages,
+    error: state.error,
+    isLoading: state.isLoading,
+    messages: state.messages,
+    sendMessage,
+    streamingContent: state.streamingContent,
   };
 };
 
 const messageToOpenAI = (message: Message): OpenAIMessage => {
   if (message.role === 'tool' && message.toolCallId) {
     return {
+      content: message.content,
       role: 'tool',
       tool_call_id: message.toolCallId,
-      content: message.content,
     };
   }
 
   if (message.role === 'assistant' && message.toolCalls) {
     return {
-      role: 'assistant',
       content: message.content,
+      role: 'assistant',
       tool_calls: message.toolCalls.map((tc) => ({
+        function: {
+          arguments: JSON.stringify(tc.arguments),
+          name: tc.name,
+        },
         id: tc.id,
         type: 'function' as const,
-        function: {
-          name: tc.name,
-          arguments: JSON.stringify(tc.arguments),
-        },
       })),
     };
   }
 
   return {
-    role: message.role as 'user' | 'assistant' | 'system',
     content: message.content,
+    role: message.role as 'assistant' | 'system' | 'user',
   };
 };

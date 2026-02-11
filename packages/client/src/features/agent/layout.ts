@@ -16,9 +16,9 @@ export interface Position {
 }
 
 export interface LayoutResult {
-  positions: Map<string, Position>;
   levels: Map<string, number>;
   maxLevel: number;
+  positions: Map<string, Position>;
 }
 
 export const defaultHorizontalConfig = (): LayoutConfig => ({
@@ -63,9 +63,9 @@ export const layout = (
 ): LayoutResult => {
   if (nodes.length === 0) {
     return {
-      positions: new Map(),
       levels: new Map(),
       maxLevel: 0,
+      positions: new Map(),
     };
   }
 
@@ -142,9 +142,9 @@ export const layout = (
   }
 
   return {
-    positions,
     levels: nodeLevels,
     maxLevel,
+    positions,
   };
 };
 

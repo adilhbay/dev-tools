@@ -9,7 +9,7 @@ import { useDrop } from 'react-aria';
 import { Button as AriaButton, Dialog, MenuTrigger, useDragAndDrop } from 'react-aria-components';
 import { createPortal } from 'react-dom';
 import { FiClock, FiCpu, FiMinus, FiMoreHorizontal, FiPlus, FiStopCircle, FiX } from 'react-icons/fi';
-import { Panel as ResizablePanel, Group as PanelGroup } from 'react-resizable-panels';
+import { Group as PanelGroup, Panel as ResizablePanel } from 'react-resizable-panels';
 import { twJoin } from 'tailwind-merge';
 import { FileKind } from '@the-dev-tools/spec/buf/api/file_system/v1/file_system_pb';
 import {
@@ -94,7 +94,7 @@ export const FlowEditPage = () => {
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
 
   return (
-    <FlowContext.Provider value={{ flowId, setSidebar, agentPanelOpen, setAgentPanelOpen }}>
+    <FlowContext.Provider value={{ agentPanelOpen, flowId, setAgentPanelOpen, setSidebar }}>
       <XF.ReactFlowProvider>
         <div className={tw`flex h-full flex-col`}>
           <TopBarWithControls />
@@ -114,7 +114,7 @@ export const FlowEditPage = () => {
             {agentPanelOpen && (
               <>
                 <PanelResizeHandle direction='horizontal' />
-                <ResizablePanel defaultSize='30%' minSize='15%' maxSize='60%'>
+                <ResizablePanel defaultSize='30%' maxSize='60%' minSize='15%'>
                   <AgentPanel key={flowIdCanonical} />
                 </ResizablePanel>
               </>
@@ -429,7 +429,7 @@ export const TopBarWithControls = () => {
 };
 
 const ActionBar = () => {
-  const { flowId, setSidebar, setAgentPanelOpen } = use(FlowContext);
+  const { flowId, setAgentPanelOpen, setSidebar } = use(FlowContext);
   const { transport } = routes.root.useRouteContext();
 
   const flowCollection = useApiCollection(FlowCollectionSchema);

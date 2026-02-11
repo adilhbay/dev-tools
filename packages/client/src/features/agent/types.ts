@@ -1,99 +1,99 @@
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
 
-export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
+export type MessageRole = 'assistant' | 'system' | 'tool' | 'user';
 
 export interface Message {
+  content: string;
   id: string;
   role: MessageRole;
-  content: string;
-  toolCalls?: ToolCall[];
-  toolCallId?: string;
   timestamp: number;
+  toolCallId?: string;
+  toolCalls?: ToolCall[];
 }
 
 export interface ToolCall {
+  arguments: Record<string, unknown>;
   id: string;
   name: string;
-  arguments: Record<string, unknown>;
 }
 
 export interface ToolResult {
-  toolCallId: string;
-  result: unknown;
   error?: string;
   isMutation?: boolean;
+  result: unknown;
+  toolCallId: string;
 }
 
 export interface AgentChatState {
-  messages: Message[];
+  error: null | string;
   isLoading: boolean;
-  error: string | null;
+  messages: Message[];
   streamingContent: string;
 }
 
 export interface FlowContextData {
+  edges: EdgeInfo[];
+  executions: NodeExecutionInfo[];
   flowId: string;
   nodes: NodeInfo[];
-  edges: EdgeInfo[];
-  variables: VariableInfo[];
-  executions: NodeExecutionInfo[];
   selectedNodeIds?: string[];
+  variables: VariableInfo[];
 }
 
 export interface NodeInfo {
-  id: string;
-  name: string;
-  kind: string;
-  position: { x: number; y: number };
-  state: string;
-  info?: string;
   httpId?: string;
   httpMethod?: string;
+  id: string;
+  info?: string;
+  kind: string;
+  name: string;
+  position: { x: number; y: number };
+  state: string;
 }
 
 export interface NodeExecutionInfo {
-  id: string;
-  nodeId: string;
-  name: string;
-  state: string;
-  error?: string;
-  input?: unknown;
-  output?: unknown;
   completedAt?: string;
+  error?: string;
+  id: string;
+  input?: unknown;
+  name: string;
+  nodeId: string;
+  output?: unknown;
+  state: string;
 }
 
 export interface EdgeInfo {
   id: string;
+  sourceHandle?: string;
   sourceId: string;
   targetId: string;
-  sourceHandle?: string;
 }
 
 export interface VariableInfo {
+  enabled: boolean;
   id: string;
   key: string;
   value: string;
-  enabled: boolean;
 }
 
 export interface ToolSchema {
-  name: string;
   description: string;
+  name: string;
   parameters: {
-    type: 'object';
+    additionalProperties?: boolean;
     properties: Record<string, unknown>;
     required?: string[];
-    additionalProperties?: boolean;
+    type: 'object';
   };
 }
 
 export const formatToolAsOpenAI = (schema: ToolSchema): ChatCompletionTool => ({
-  type: 'function',
   function: {
-    name: schema.name,
     description: schema.description,
+    name: schema.name,
     parameters: schema.parameters,
   },
+  type: 'function',
 });
 
 export type OpenAIMessage = ChatCompletionMessageParam;

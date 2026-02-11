@@ -79,7 +79,7 @@ function isVisibleFor(property: ModelProperty, phase: 'Create' | 'Update'): bool
   if (!visibilityDec) return true;
 
   return visibilityDec.args.some((arg) => {
-    const val = arg.value as { value?: { name?: string } } | undefined;
+    const val = arg.value as undefined | { value?: { name?: string } };
     return val?.value?.name === phase;
   });
 }
@@ -105,6 +105,15 @@ function resolveToolProperties(program: Program, collectionModel: Model, toolDef
   };
 
   switch (operation) {
+    case 'Delete': {
+      const props: ResolvedProperty[] = [];
+      for (const prop of collectionModel.properties.values()) {
+        if (primaryKeys(program).has(prop)) {
+          props.push({ optional: false, property: prop });
+        }
+      }
+      return props;
+    }
     case 'Insert': {
       const props: ResolvedProperty[] = [];
       if (parent) {
@@ -134,15 +143,6 @@ function resolveToolProperties(program: Program, collectionModel: Model, toolDef
         } else {
           if (exclude.includes(prop.name)) continue;
           props.push({ optional: true, property: prop });
-        }
-      }
-      return props;
-    }
-    case 'Delete': {
-      const props: ResolvedProperty[] = [];
-      for (const prop of collectionModel.properties.values()) {
-        if (primaryKeys(program).has(prop)) {
-          props.push({ optional: false, property: prop });
         }
       }
       return props;
@@ -178,8 +178,8 @@ function resolveAiTools(program: Program): Partial<Record<ToolCategory, Resolved
       properties.push({ optional: prop.optional, property: prop });
     }
     const category = options.category;
-    if (!result[category]) result[category] = [];
-    result[category]!.push({
+    result[category] ??= [];
+    result[category].push({
       description: getDoc(program, model),
       name: model.name,
       properties,
@@ -202,7 +202,7 @@ const CategoryFiles = () => {
     categories.push({ category: 'Mutation', tools: resolvedMutationTools });
   }
 
-  const executionTools = aiToolsByCategory['Execution'] ?? [];
+  const executionTools = aiToolsByCategory.Execution ?? [];
   if (executionTools.length > 0) {
     categories.push({ category: 'Execution', tools: executionTools });
   }
@@ -271,7 +271,7 @@ const SchemaImports = ({ tools }: { tools: ResolvedTool[] }) => {
           </For>
         </Indent>
         <hbr />
-        {'}'} from '@the-dev-tools/spec-lib/common';
+        {'}'} from &quot;@the-dev-tools/spec-lib/common&quot;;
         <hbr />
       </Show>
     </>
@@ -293,16 +293,16 @@ const ToolSchema = ({ tool }: { tool: ResolvedTool }) => {
       <hbr />
       {'}'}).pipe(
       <hbr />
-      <Indent>
-        Schema.annotations({'{'}
-        <hbr />
         <Indent>
-          identifier: '{identifier}',<hbr />
-          <Show when={!!tool.title}>title: '{tool.title}',<hbr /></Show>
-          <Show when={!!tool.description}>description: {formatStringLiteral(tool.description ?? '')},<hbr /></Show>
+          Schema.annotations({'{'}
+          <hbr />
+          <Indent>
+            identifier: &quot;{identifier}&quot;,<hbr />
+            <Show when={!!tool.title}>title: &quot;{tool.title}&quot;,<hbr /></Show>
+            <Show when={!!tool.description}>description: {formatStringLiteral(tool.description ?? '')},<hbr /></Show>
+          </Indent>
+          {'}'}),
         </Indent>
-        {'}'}),
-      </Indent>
       <hbr />)
     </VarDeclaration>
   );

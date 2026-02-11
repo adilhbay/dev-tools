@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/await-thenable, @typescript-eslint/no-base-to-string, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-type-conversion, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions */
 import type { Transport } from '@connectrpc/connect';
 import { eq } from '@tanstack/react-db';
 import { Ulid } from 'id128';
@@ -55,20 +56,20 @@ function normalizeNodeName(name: string): string {
 }
 
 interface Collections {
-  nodeCollection: { utils: CollectionUtils };
-  edgeCollection: { utils: CollectionUtils };
-  variableCollection: { utils: CollectionUtils };
-  jsCollection: { utils: CollectionUtils };
   conditionCollection: { utils: CollectionUtils };
+  edgeCollection: { utils: CollectionUtils };
+  executionCollection: CollectionData;
   forCollection: { utils: CollectionUtils };
   forEachCollection: { utils: CollectionUtils };
-  nodeHttpCollection: { utils: CollectionUtils };
-  httpCollection: { utils: CollectionUtils };
-  httpSearchParamCollection: { utils: CollectionUtils };
-  httpHeaderCollection: { utils: CollectionUtils };
-  httpBodyRawCollection: { utils: CollectionUtils };
   httpAssertCollection: { utils: CollectionUtils };
-  executionCollection: CollectionData;
+  httpBodyRawCollection: { utils: CollectionUtils };
+  httpCollection: { utils: CollectionUtils };
+  httpHeaderCollection: { utils: CollectionUtils };
+  httpSearchParamCollection: { utils: CollectionUtils };
+  jsCollection: { utils: CollectionUtils };
+  nodeCollection: { utils: CollectionUtils };
+  nodeHttpCollection: { utils: CollectionUtils };
+  variableCollection: { utils: CollectionUtils };
 }
 
 interface ToolExecutorContext {
@@ -81,49 +82,49 @@ interface ToolExecutorContext {
 const parseUlid = (id: string): Uint8Array => Ulid.fromCanonical(id).bytes;
 
 const HANDLE_KIND_MAP: Record<string, HandleKind> = {
-  then: HandleKind.THEN,
   else: HandleKind.ELSE,
   loop: HandleKind.LOOP,
+  then: HandleKind.THEN,
 };
 
 const HTTP_METHOD_MAP: Record<string, HttpMethod> = {
-  GET: HttpMethod.GET,
-  POST: HttpMethod.POST,
-  PUT: HttpMethod.PUT,
-  PATCH: HttpMethod.PATCH,
   DELETE: HttpMethod.DELETE,
+  GET: HttpMethod.GET,
   HEAD: HttpMethod.HEAD,
   OPTIONS: HttpMethod.OPTIONS,
+  PATCH: HttpMethod.PATCH,
+  POST: HttpMethod.POST,
+  PUT: HttpMethod.PUT,
 };
 
 const NODE_KIND_NAMES: Record<number, string> = {
-  [NodeKind.UNSPECIFIED]: 'Unknown',
-  [NodeKind.MANUAL_START]: 'ManualStart',
-  [NodeKind.HTTP]: 'HTTP',
   [NodeKind.CONDITION]: 'Condition',
   [NodeKind.FOR]: 'For',
   [NodeKind.FOR_EACH]: 'ForEach',
+  [NodeKind.HTTP]: 'HTTP',
   [NodeKind.JS]: 'JavaScript',
+  [NodeKind.MANUAL_START]: 'ManualStart',
+  [NodeKind.UNSPECIFIED]: 'Unknown',
 };
 
 const FLOW_ITEM_STATE_NAMES: Record<number, string> = {
-  [FlowItemState.UNSPECIFIED]: 'Idle',
+  [FlowItemState.CANCELED]: 'Canceled',
+  [FlowItemState.FAILURE]: 'Failure',
   [FlowItemState.RUNNING]: 'Running',
   [FlowItemState.SUCCESS]: 'Success',
-  [FlowItemState.FAILURE]: 'Failure',
-  [FlowItemState.CANCELED]: 'Canceled',
+  [FlowItemState.UNSPECIFIED]: 'Idle',
 };
 
 const MUTATION_TOOLS = new Set([
-  'createJsNode',
-  'createConditionNode',
-  'createForNode',
-  'createForEachNode',
-  'createHttpNode',
-  'connectChain',
-  'disconnectNodes',
-  'deleteNode',
   'configureHttp',
+  'connectChain',
+  'createConditionNode',
+  'createForEachNode',
+  'createForNode',
+  'createHttpNode',
+  'createJsNode',
+  'deleteNode',
+  'disconnectNodes',
 ]);
 
 export const executeToolCall = async (
@@ -131,18 +132,18 @@ export const executeToolCall = async (
   flowId: Uint8Array,
   context: ToolExecutorContext,
 ): Promise<ToolResult> => {
-  const { id, name, arguments: args } = toolCall;
+  const { arguments: args, id, name } = toolCall;
   const isMutation = MUTATION_TOOLS.has(name);
 
   try {
     const result = await executeToolInternal(name, args, flowId, context);
-    return { toolCallId: id, result, isMutation };
+    return { isMutation, result, toolCallId: id };
   } catch (error) {
     return {
-      toolCallId: id,
-      result: null,
       error: error instanceof Error ? error.message : String(error),
       isMutation,
+      result: null,
+      toolCallId: id,
     };
   }
 };
@@ -155,171 +156,23 @@ const executeToolInternal = async (
 ): Promise<unknown> => {
   const { collections, flowContext, transport } = context;
   const {
-    nodeCollection,
-    edgeCollection,
-    variableCollection,
-    jsCollection,
     conditionCollection,
+    edgeCollection,
+    executionCollection,
     forCollection,
     forEachCollection,
-    nodeHttpCollection,
-    httpCollection,
-    httpSearchParamCollection,
-    httpHeaderCollection,
-    httpBodyRawCollection,
     httpAssertCollection,
-    executionCollection,
+    httpBodyRawCollection,
+    httpCollection,
+    httpHeaderCollection,
+    httpSearchParamCollection,
+    jsCollection,
+    nodeCollection,
+    nodeHttpCollection,
+    variableCollection,
   } = collections;
 
   switch (name) {
-    case 'inspectNode': {
-      const nodeIdStr = args.nodeId as string;
-      const includeOutput = (args.includeOutput as boolean) ?? false;
-      const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
-      if (!node) throw new Error(`Node not found: ${nodeIdStr}`);
-
-      const nodeIdBytes = parseUlid(nodeIdStr);
-
-      // Base info (always returned)
-      const result: Record<string, unknown> = {
-        id: node.id,
-        name: node.name,
-        kind: node.kind,
-        state: node.state,
-        error: node.info ?? undefined,
-      };
-
-      // Type-specific config
-      switch (node.kind) {
-        case 'HTTP': {
-          if (!node.httpId) break;
-          const httpIdBytes = parseUlid(node.httpId);
-
-          const [httpData] = await queryCollection((_) =>
-            _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
-          );
-
-          const searchParams = await queryCollection((_) =>
-            _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
-          );
-
-          const headers = await queryCollection((_) =>
-            _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
-          );
-
-          const bodyRaw = await queryCollection((_) =>
-            _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
-          );
-
-          const asserts = await queryCollection((_) =>
-            _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
-          );
-
-          const HTTP_METHOD_NAMES: Record<number, string> = {
-            0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
-            5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
-          };
-
-          result.httpId = node.httpId;
-          result.url = httpData?.url ?? '';
-          result.method = HTTP_METHOD_NAMES[httpData?.method ?? 0] ?? 'UNSPECIFIED';
-          result.headers = headers.map((h) => ({
-            id: h.httpHeaderId ? Ulid.construct(h.httpHeaderId).toCanonical() : undefined,
-            key: h.key,
-            value: h.value,
-            enabled: h.enabled,
-          }));
-          result.searchParams = searchParams.map((sp) => ({
-            id: sp.httpSearchParamId ? Ulid.construct(sp.httpSearchParamId).toCanonical() : undefined,
-            key: sp.key,
-            value: sp.value,
-            enabled: sp.enabled,
-          }));
-          result.body = bodyRaw.length > 0 ? bodyRaw[0]?.data : undefined;
-          result.assertions = asserts.map((a) => ({
-            id: a.httpAssertId ? Ulid.construct(a.httpAssertId).toCanonical() : undefined,
-            value: a.value,
-            enabled: a.enabled,
-          }));
-          break;
-        }
-        case 'JavaScript': {
-          const [jsData] = await queryCollection((_) =>
-            _.from({ js: jsCollection }).where((_) => eq(_.js.nodeId, nodeIdBytes)).findOne(),
-          );
-          result.code = jsData?.code ?? '';
-          break;
-        }
-        case 'Condition': {
-          const [condData] = await queryCollection((_) =>
-            _.from({ cond: conditionCollection }).where((_) => eq(_.cond.nodeId, nodeIdBytes)).findOne(),
-          );
-          result.condition = condData?.condition ?? '';
-          break;
-        }
-        case 'For': {
-          const [forData] = await queryCollection((_) =>
-            _.from({ f: forCollection }).where((_) => eq(_.f.nodeId, nodeIdBytes)).findOne(),
-          );
-          result.iterations = forData?.iterations;
-          result.condition = forData?.condition ?? '';
-          result.errorHandling = forData?.errorHandling === 1 ? 'break' : 'continue';
-          break;
-        }
-        case 'ForEach': {
-          const [feData] = await queryCollection((_) =>
-            _.from({ fe: forEachCollection }).where((_) => eq(_.fe.nodeId, nodeIdBytes)).findOne(),
-          );
-          result.path = feData?.path ?? '';
-          result.condition = feData?.condition ?? '';
-          result.errorHandling = feData?.errorHandling === 1 ? 'break' : 'continue';
-          break;
-        }
-      }
-
-      // Query execution data fresh from collection (not cached flowContext)
-      const allExecs = await queryCollection((_) =>
-        _.from({ exec: executionCollection }),
-      );
-      const nodeExecs = allExecs
-        .filter((e) => e.nodeId != null && Ulid.construct(e.nodeId).toCanonical() === nodeIdStr)
-        .sort((a, b) => {
-          if (!a.completedAt && !b.completedAt) return 0;
-          if (!a.completedAt) return 1;
-          if (!b.completedAt) return -1;
-          return Number(b.completedAt - a.completedAt);
-        });
-
-      if (nodeExecs.length > 0) {
-        const latest = nodeExecs[0]!;
-        result.execution = {
-          state: FLOW_ITEM_STATE_NAMES[latest.state] ?? 'Unknown',
-          error: latest.error ?? undefined,
-          completedAt: latest.completedAt instanceof Date
-            ? latest.completedAt.toISOString()
-            : latest.completedAt ? String(latest.completedAt) : undefined,
-        };
-
-        if (includeOutput) {
-          const MAX_OUTPUT_LENGTH = 10000;
-          const truncateData = (data: unknown): unknown => {
-            if (data == null) return data;
-            const str = typeof data === 'string' ? data : JSON.stringify(data);
-            if (str.length <= MAX_OUTPUT_LENGTH) return data;
-            return {
-              _truncated: true,
-              _originalLength: str.length,
-              preview: str.slice(0, MAX_OUTPUT_LENGTH) + '...',
-            };
-          };
-          (result.execution as Record<string, unknown>).input = truncateData(latest.input);
-          (result.execution as Record<string, unknown>).output = truncateData(latest.output);
-        }
-      }
-
-      return result;
-    }
-
     case 'configureHttp': {
       const nodeIdStr = args.nodeId as string;
       const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
@@ -360,17 +213,17 @@ const executeToolInternal = async (
         for (const h of existingHeaders) {
           if (h.httpHeaderId) httpHeaderCollection.utils.delete({ httpHeaderId: h.httpHeaderId });
         }
-        const newHeaders = args.headers as { key: string; value?: string; enabled?: boolean; description?: string }[];
+        const newHeaders = args.headers as { description?: string; enabled?: boolean; key: string; value?: string; }[];
         for (let i = 0; i < newHeaders.length; i++) {
           const h = newHeaders[i]!;
           await httpHeaderCollection.utils.insert({
+            description: h.description ?? '',
+            enabled: h.enabled ?? true,
             httpHeaderId: Ulid.generate().bytes,
             httpId: httpIdBytes,
             key: h.key,
-            value: h.value ?? '',
-            enabled: h.enabled ?? true,
-            description: h.description ?? '',
             order: i,
+            value: h.value ?? '',
           });
         }
       }
@@ -383,43 +236,43 @@ const executeToolInternal = async (
         for (const sp of existingParams) {
           if (sp.httpSearchParamId) httpSearchParamCollection.utils.delete({ httpSearchParamId: sp.httpSearchParamId });
         }
-        const newParams = args.searchParams as { key: string; value?: string; enabled?: boolean; description?: string }[];
+        const newParams = args.searchParams as { description?: string; enabled?: boolean; key: string; value?: string; }[];
         for (let i = 0; i < newParams.length; i++) {
           const sp = newParams[i]!;
           await httpSearchParamCollection.utils.insert({
-            httpSearchParamId: Ulid.generate().bytes,
-            httpId: httpIdBytes,
-            key: sp.key,
-            value: sp.value ?? '',
-            enabled: sp.enabled ?? true,
             description: sp.description ?? '',
+            enabled: sp.enabled ?? true,
+            httpId: httpIdBytes,
+            httpSearchParamId: Ulid.generate().bytes,
+            key: sp.key,
             order: i,
+            value: sp.value ?? '',
           });
         }
       }
 
       // Set or clear body
       if (args.body !== undefined) {
-        const body = args.body as string | null;
+        const body = args.body as null | string;
         if (body === null) {
           // Clear body
-          httpCollection.utils.update({ httpId: httpIdBytes, bodyKind: HttpBodyKind.UNSPECIFIED });
+          httpCollection.utils.update({ bodyKind: HttpBodyKind.UNSPECIFIED, httpId: httpIdBytes });
           const existingBody = await queryCollection((_) =>
             _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
           );
           if (existingBody.length > 0) {
-            httpBodyRawCollection.utils.update({ httpId: httpIdBytes, data: '' });
+            httpBodyRawCollection.utils.update({ data: '', httpId: httpIdBytes });
           }
         } else {
           // Set body
-          httpCollection.utils.update({ httpId: httpIdBytes, bodyKind: HttpBodyKind.RAW });
+          httpCollection.utils.update({ bodyKind: HttpBodyKind.RAW, httpId: httpIdBytes });
           const existingBody = await queryCollection((_) =>
             _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
           );
           if (existingBody.length > 0) {
-            httpBodyRawCollection.utils.update({ httpId: httpIdBytes, data: body });
+            httpBodyRawCollection.utils.update({ data: body, httpId: httpIdBytes });
           } else {
-            await httpBodyRawCollection.utils.insert({ httpId: httpIdBytes, data: body });
+            await httpBodyRawCollection.utils.insert({ data: body, httpId: httpIdBytes });
           }
         }
       }
@@ -432,15 +285,15 @@ const executeToolInternal = async (
         for (const a of existingAsserts) {
           if (a.httpAssertId) httpAssertCollection.utils.delete({ httpAssertId: a.httpAssertId });
         }
-        const newAsserts = args.assertions as { value: string; enabled?: boolean }[];
+        const newAsserts = args.assertions as { enabled?: boolean; value: string; }[];
         for (let i = 0; i < newAsserts.length; i++) {
           const a = newAsserts[i]!;
           await httpAssertCollection.utils.insert({
+            enabled: a.enabled ?? true,
             httpAssertId: Ulid.generate().bytes,
             httpId: httpIdBytes,
-            value: a.value,
-            enabled: a.enabled ?? true,
             order: i,
+            value: a.value,
           });
         }
       }
@@ -448,246 +301,10 @@ const executeToolInternal = async (
       return { success: true };
     }
 
-    case 'createJsNode': {
-      const nodeId = Ulid.generate().bytes;
-      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const code = normalizeJsCodeReferences(args.code as string);
-      const nodeName = normalizeNodeName(args.name as string);
-
-      // Call both inserts before awaiting to ensure optimistic updates happen
-      // synchronously before any sync responses can arrive from the server
-      const nodePromise = nodeCollection.utils.insert({
-        flowId,
-        kind: NodeKind.JS,
-        name: nodeName,
-        nodeId,
-        position,
-      });
-
-      const jsPromise = jsCollection.utils.insert({
-        nodeId,
-        code: `export default function(ctx) {\n  ${code}\n}`,
-      });
-
-      await Promise.all([nodePromise, jsPromise]);
-
-      return { nodeId: Ulid.construct(nodeId).toCanonical(), name: nodeName };
-    }
-
-    case 'createConditionNode': {
-      const nodeId = Ulid.generate().bytes;
-      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const condition = normalizeConditionSyntax(args.condition as string);
-      const nodeName = normalizeNodeName(args.name as string);
-
-      // Call both inserts before awaiting to ensure optimistic updates happen
-      // synchronously before any sync responses can arrive from the server
-      const nodePromise = nodeCollection.utils.insert({
-        flowId,
-        kind: NodeKind.CONDITION,
-        name: nodeName,
-        nodeId,
-        position,
-      });
-
-      const conditionPromise = conditionCollection.utils.insert({
-        nodeId,
-        condition,
-      });
-
-      await Promise.all([nodePromise, conditionPromise]);
-
-      return { nodeId: Ulid.construct(nodeId).toCanonical(), name: nodeName };
-    }
-
-    case 'createForNode': {
-      // Validate iterations is a positive integer
-      const iterations = args.iterations as number | undefined;
-      if (iterations === undefined || iterations === null) {
-        throw new Error('iterations is required for For nodes. Specify the number of times to iterate.');
-      }
-      if (!Number.isInteger(iterations) || iterations <= 0) {
-        throw new Error(`iterations must be a positive integer, got: ${iterations}`);
-      }
-
-      // Validate break condition is provided
-      const rawCondition = args.condition as string | undefined;
-      if (!rawCondition || rawCondition.trim() === '') {
-        throw new Error(
-          'condition (break condition) is required for For nodes. ' +
-            'Provide an expression that evaluates to true to exit the loop early. ' +
-            'Example: Counter.count >= 10',
-        );
-      }
-
-      const nodeId = Ulid.generate().bytes;
-      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const condition = normalizeConditionSyntax(rawCondition);
-      const errorHandling = args.errorHandling as string;
-      const nodeName = normalizeNodeName(args.name as string);
-
-      // Call both inserts before awaiting to ensure optimistic updates happen
-      // synchronously before any sync responses can arrive from the server
-      const nodePromise = nodeCollection.utils.insert({
-        flowId,
-        kind: NodeKind.FOR,
-        name: nodeName,
-        nodeId,
-        position,
-      });
-
-      const forPromise = forCollection.utils.insert({
-        nodeId,
-        iterations,
-        condition,
-        errorHandling: errorHandling === 'break' ? 1 : 0,
-      });
-
-      await Promise.all([nodePromise, forPromise]);
-
-      return { nodeId: Ulid.construct(nodeId).toCanonical(), name: nodeName };
-    }
-
-    case 'createForEachNode': {
-      // Validate path is provided
-      const rawPath = args.path as string | undefined;
-      if (!rawPath || rawPath.trim() === '') {
-        throw new Error(
-          'path is required for ForEach nodes. ' +
-            'Provide an expression for the array/object to iterate. ' +
-            'Example: HTTP_Request.response.body.items',
-        );
-      }
-
-      // Validate break condition is provided
-      const rawCondition = args.condition as string | undefined;
-      if (!rawCondition || rawCondition.trim() === '') {
-        throw new Error(
-          'condition (break condition) is required for ForEach nodes. ' +
-            'Provide an expression that evaluates to true to exit the loop early. ' +
-            'Example: ForEach_Loop.key >= 5',
-        );
-      }
-
-      const nodeId = Ulid.generate().bytes;
-      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const path = normalizeConditionSyntax(rawPath);
-      const condition = normalizeConditionSyntax(rawCondition);
-      const errorHandling = args.errorHandling as string;
-      const nodeName = normalizeNodeName(args.name as string);
-
-      // Call both inserts before awaiting to ensure optimistic updates happen
-      // synchronously before any sync responses can arrive from the server
-      const nodePromise = nodeCollection.utils.insert({
-        flowId,
-        kind: NodeKind.FOR_EACH,
-        name: nodeName,
-        nodeId,
-        position,
-      });
-
-      const forEachPromise = forEachCollection.utils.insert({
-        nodeId,
-        path,
-        condition,
-        errorHandling: errorHandling === 'break' ? 1 : 0,
-      });
-
-      await Promise.all([nodePromise, forEachPromise]);
-
-      return { nodeId: Ulid.construct(nodeId).toCanonical(), name: nodeName };
-    }
-
-    case 'createHttpNode': {
-      const nodeId = Ulid.generate().bytes;
-      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
-      const nodeName = normalizeNodeName(args.name as string);
-
-      let httpId: Uint8Array;
-      let httpIdStr: string;
-      const insertPromises: Promise<unknown>[] = [];
-
-      if (args.httpId) {
-        // Use existing HTTP request
-        httpId = parseUlid(args.httpId as string);
-        httpIdStr = args.httpId as string;
-      } else {
-        // Validate HTTP method
-        const methodStr = ((args.method as string) ?? '').toUpperCase();
-        if (!methodStr) {
-          throw new Error(
-            'method is required when creating a new HTTP node. ' +
-              'Valid methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
-          );
-        }
-        const method = HTTP_METHOD_MAP[methodStr];
-        if (method === undefined) {
-          throw new Error(
-            `Invalid HTTP method: "${args.method}". ` +
-              'Valid methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
-          );
-        }
-
-        const url = (args.url as string) ?? '';
-        const methodsWithBody = new Set(['POST', 'PUT', 'PATCH']);
-        const needsBody = methodsWithBody.has(methodStr);
-
-        // Create new HTTP request with appropriate bodyKind
-        httpId = Ulid.generate().bytes;
-        httpIdStr = Ulid.construct(httpId).toCanonical();
-
-        insertPromises.push(
-          httpCollection.utils.insert({
-            httpId,
-            method,
-            name: nodeName,
-            url,
-            bodyKind: needsBody ? HttpBodyKind.RAW : HttpBodyKind.UNSPECIFIED,
-          }),
-        );
-
-        // If a body is provided and the method supports it, insert the raw body
-        const body = args.body as string | undefined;
-        if (body && needsBody) {
-          insertPromises.push(
-            collections.httpBodyRawCollection.utils.insert({
-              httpId,
-              data: body,
-            }),
-          );
-        } else if (body && !needsBody) {
-          throw new Error(
-            `Cannot set body for ${methodStr} requests. ` +
-              'Only POST, PUT, and PATCH methods support a request body.',
-          );
-        }
-      }
-
-      // Call all inserts before awaiting to ensure optimistic updates happen
-      // synchronously before any sync responses can arrive from the server
-      insertPromises.push(
-        nodeCollection.utils.insert({
-          flowId,
-          kind: NodeKind.HTTP,
-          name: nodeName,
-          nodeId,
-          position,
-        }),
-        nodeHttpCollection.utils.insert({
-          nodeId,
-          httpId,
-        }),
-      );
-
-      await Promise.all(insertPromises);
-
-      return { nodeId: Ulid.construct(nodeId).toCanonical(), httpId: httpIdStr, name: nodeName };
-    }
-
     case 'connectChain': {
       const nodeIds = args.nodeIds as (string | string[])[];
       const handleOverride = args.sourceHandle as string | undefined;
-      if (handleOverride && !['then', 'else', 'loop'].includes(handleOverride)) {
+      if (handleOverride && !['else', 'loop', 'then'].includes(handleOverride)) {
         throw new Error(
           `Invalid sourceHandle "${handleOverride}". Valid values: "then", "else", "loop".`,
         );
@@ -771,10 +388,10 @@ const executeToolInternal = async (
           // Validate handle is valid for the specific branching node type
           if (isBranching && handleOverride) {
             const validHandles =
-              sourceNode!.kind === 'Condition' ? ['then', 'else'] : ['then', 'loop'];
+              sourceNode.kind === 'Condition' ? ['then', 'else'] : ['then', 'loop'];
             if (!validHandles.includes(handleOverride)) {
               errors.push(
-                `Edge ${idx}: Invalid sourceHandle "${handleOverride}" for ${sourceNode!.kind} node "${sourceNode!.name}". ` +
+                `Edge ${idx}: Invalid sourceHandle "${handleOverride}" for ${sourceNode.kind} node "${sourceNode.name}". ` +
                   `Valid handles: ${validHandles.join(', ')}. Skipped.`,
               );
               continue;
@@ -802,16 +419,268 @@ const executeToolInternal = async (
       }
 
       return {
-        edgesCreated: edgeIds.length,
         edgeIds,
+        edgesCreated: edgeIds.length,
         ...(errors.length > 0 ? { errors } : {}),
       };
     }
 
-    case 'disconnectNodes': {
-      const edgeId = parseUlid(args.edgeId as string);
-      edgeCollection.utils.delete({ edgeId });
-      return { success: true };
+    case 'createConditionNode': {
+      const nodeId = Ulid.generate().bytes;
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
+      const condition = normalizeConditionSyntax(args.condition as string);
+      const nodeName = normalizeNodeName(args.name as string);
+
+      // Call both inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
+        flowId,
+        kind: NodeKind.CONDITION,
+        name: nodeName,
+        nodeId,
+        position,
+      });
+
+      const conditionPromise = conditionCollection.utils.insert({
+        condition,
+        nodeId,
+      });
+
+      await Promise.all([nodePromise, conditionPromise]);
+
+      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+    }
+
+    case 'createForEachNode': {
+      // Validate path is provided
+      const rawPath = args.path as string | undefined;
+      if (!rawPath || rawPath.trim() === '') {
+        throw new Error(
+          'path is required for ForEach nodes. ' +
+            'Provide an expression for the array/object to iterate. ' +
+            'Example: HTTP_Request.response.body.items',
+        );
+      }
+
+      // Validate break condition is provided
+      const rawCondition = args.condition as string | undefined;
+      if (!rawCondition || rawCondition.trim() === '') {
+        throw new Error(
+          'condition (break condition) is required for ForEach nodes. ' +
+            'Provide an expression that evaluates to true to exit the loop early. ' +
+            'Example: ForEach_Loop.key >= 5',
+        );
+      }
+
+      const nodeId = Ulid.generate().bytes;
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
+      const path = normalizeConditionSyntax(rawPath);
+      const condition = normalizeConditionSyntax(rawCondition);
+      const errorHandling = args.errorHandling as string;
+      const nodeName = normalizeNodeName(args.name as string);
+
+      // Call both inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
+        flowId,
+        kind: NodeKind.FOR_EACH,
+        name: nodeName,
+        nodeId,
+        position,
+      });
+
+      const forEachPromise = forEachCollection.utils.insert({
+        condition,
+        errorHandling: errorHandling === 'break' ? 1 : 0,
+        nodeId,
+        path,
+      });
+
+      await Promise.all([nodePromise, forEachPromise]);
+
+      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+    }
+
+    case 'createForNode': {
+      // Validate iterations is a positive integer
+      const iterations = args.iterations as number | undefined;
+      if (iterations === undefined || iterations === null) {
+        throw new Error('iterations is required for For nodes. Specify the number of times to iterate.');
+      }
+      if (!Number.isInteger(iterations) || iterations <= 0) {
+        throw new Error(`iterations must be a positive integer, got: ${iterations}`);
+      }
+
+      // Validate break condition is provided
+      const rawCondition = args.condition as string | undefined;
+      if (!rawCondition || rawCondition.trim() === '') {
+        throw new Error(
+          'condition (break condition) is required for For nodes. ' +
+            'Provide an expression that evaluates to true to exit the loop early. ' +
+            'Example: Counter.count >= 10',
+        );
+      }
+
+      const nodeId = Ulid.generate().bytes;
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
+      const condition = normalizeConditionSyntax(rawCondition);
+      const errorHandling = args.errorHandling as string;
+      const nodeName = normalizeNodeName(args.name as string);
+
+      // Call both inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
+        flowId,
+        kind: NodeKind.FOR,
+        name: nodeName,
+        nodeId,
+        position,
+      });
+
+      const forPromise = forCollection.utils.insert({
+        condition,
+        errorHandling: errorHandling === 'break' ? 1 : 0,
+        iterations,
+        nodeId,
+      });
+
+      await Promise.all([nodePromise, forPromise]);
+
+      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+    }
+
+    case 'createHttpNode': {
+      const nodeId = Ulid.generate().bytes;
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
+      const nodeName = normalizeNodeName(args.name as string);
+
+      let httpId: Uint8Array;
+      let httpIdStr: string;
+      const insertPromises: Promise<unknown>[] = [];
+
+      if (args.httpId) {
+        // Use existing HTTP request
+        httpId = parseUlid(args.httpId as string);
+        httpIdStr = args.httpId as string;
+      } else {
+        // Validate HTTP method
+        const methodStr = ((args.method as string) ?? '').toUpperCase();
+        if (!methodStr) {
+          throw new Error(
+            'method is required when creating a new HTTP node. ' +
+              'Valid methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
+          );
+        }
+        const method = HTTP_METHOD_MAP[methodStr];
+        if (method === undefined) {
+          throw new Error(
+            `Invalid HTTP method: "${args.method}". ` +
+              'Valid methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
+          );
+        }
+
+        const url = (args.url as string) ?? '';
+        const methodsWithBody = new Set(['PATCH', 'POST', 'PUT']);
+        const needsBody = methodsWithBody.has(methodStr);
+
+        // Create new HTTP request with appropriate bodyKind
+        httpId = Ulid.generate().bytes;
+        httpIdStr = Ulid.construct(httpId).toCanonical();
+
+        insertPromises.push(
+          httpCollection.utils.insert({
+            bodyKind: needsBody ? HttpBodyKind.RAW : HttpBodyKind.UNSPECIFIED,
+            httpId,
+            method,
+            name: nodeName,
+            url,
+          }),
+        );
+
+        // If a body is provided and the method supports it, insert the raw body
+        const body = args.body as string | undefined;
+        if (body && needsBody) {
+          insertPromises.push(
+            collections.httpBodyRawCollection.utils.insert({
+              data: body,
+              httpId,
+            }),
+          );
+        } else if (body && !needsBody) {
+          throw new Error(
+            `Cannot set body for ${methodStr} requests. ` +
+              'Only POST, PUT, and PATCH methods support a request body.',
+          );
+        }
+      }
+
+      // Call all inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      insertPromises.push(
+        nodeCollection.utils.insert({
+          flowId,
+          kind: NodeKind.HTTP,
+          name: nodeName,
+          nodeId,
+          position,
+        }),
+        nodeHttpCollection.utils.insert({
+          httpId,
+          nodeId,
+        }),
+      );
+
+      await Promise.all(insertPromises);
+
+      return { httpId: httpIdStr, name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+    }
+
+    case 'createJsNode': {
+      const nodeId = Ulid.generate().bytes;
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
+      const code = normalizeJsCodeReferences(args.code as string);
+      const nodeName = normalizeNodeName(args.name as string);
+
+      // Call both inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
+        flowId,
+        kind: NodeKind.JS,
+        name: nodeName,
+        nodeId,
+        position,
+      });
+
+      const jsPromise = jsCollection.utils.insert({
+        code: `export default function(ctx) {\n  ${code}\n}`,
+        nodeId,
+      });
+
+      await Promise.all([nodePromise, jsPromise]);
+
+      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+    }
+
+    case 'createVariable': {
+      const flowVariableId = Ulid.generate().bytes;
+      const key = args.key as string;
+      const value = args.value as string;
+      const enabled = args.enabled as boolean;
+      const description = args.description as string;
+      const order = args.order as number;
+
+      // Await to ensure server persistence before returning
+      await variableCollection.utils.insert({
+        description,
+        enabled,
+        flowId,
+        flowVariableId,
+        key,
+        order,
+        value,
+      });
+
+      return { flowVariableId: Ulid.construct(flowVariableId).toCanonical() };
     }
 
     case 'deleteNode': {
@@ -827,65 +696,12 @@ const executeToolInternal = async (
       }
 
       nodeCollection.utils.delete({ nodeId });
-      return { success: true, deletedEdges: connectedEdges.length };
+      return { deletedEdges: connectedEdges.length, success: true };
     }
 
-    case 'updateNodeConfig': {
-      const nodeId = parseUlid(args.nodeId as string);
-      const updates: Record<string, unknown> = { nodeId };
-
-      if (args.name) updates.name = args.name;
-      if (args.position) updates.position = args.position;
-
-      nodeCollection.utils.update(updates);
-      return { success: true };
-    }
-
-    case 'updateNodeCode': {
-      const nodeId = parseUlid(args.nodeId as string);
-      const code = args.code as string;
-
-      jsCollection.utils.update({
-        nodeId,
-        code: `export default function(ctx) {\n  ${code}\n}`,
-      });
-
-      return { success: true };
-    }
-
-    case 'createVariable': {
-      const flowVariableId = Ulid.generate().bytes;
-      const key = args.key as string;
-      const value = args.value as string;
-      const enabled = args.enabled as boolean;
-      const description = args.description as string;
-      const order = args.order as number;
-
-      // Await to ensure server persistence before returning
-      await variableCollection.utils.insert({
-        flowVariableId,
-        flowId,
-        key,
-        value,
-        enabled,
-        description,
-        order,
-      });
-
-      return { flowVariableId: Ulid.construct(flowVariableId).toCanonical() };
-    }
-
-    case 'updateVariable': {
-      const flowVariableId = parseUlid(args.flowVariableId as string);
-      const updates: Record<string, unknown> = { flowVariableId };
-
-      if (args.key !== undefined) updates.key = args.key;
-      if (args.value !== undefined) updates.value = args.value;
-      if (args.enabled !== undefined) updates.enabled = args.enabled;
-      if (args.description !== undefined) updates.description = args.description;
-      if (args.order !== undefined) updates.order = args.order;
-
-      variableCollection.utils.update(updates);
+    case 'disconnectNodes': {
+      const edgeId = parseUlid(args.edgeId as string);
+      edgeCollection.utils.delete({ edgeId });
       return { success: true };
     }
 
@@ -899,8 +715,8 @@ const executeToolInternal = async (
       await context.waitForFlowCompletion();
 
       return {
-        success: true,
         message: 'Flow execution completed. Use getFlowExecutionSummary to inspect results.',
+        success: true,
       };
     }
 
@@ -910,7 +726,7 @@ const executeToolInternal = async (
         method: FlowService.method.flowStop,
         transport,
       });
-      return { success: true, message: 'Flow execution stopped' };
+      return { message: 'Flow execution stopped', success: true };
     }
 
     case 'getFlowExecutionSummary': {
@@ -963,8 +779,8 @@ const executeToolInternal = async (
         )
         .map((n) => ({
           id: Ulid.construct(n.nodeId).toCanonical(),
-          name: n.name,
           kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+          name: n.name,
         }));
 
       return {
@@ -974,6 +790,191 @@ const executeToolInternal = async (
           ? `${neverReachedNodes.length} node(s) were never reached during execution. This may indicate an untaken branch or a wiring problem.`
           : undefined,
       };
+    }
+
+    case 'inspectNode': {
+      const nodeIdStr = args.nodeId as string;
+      const includeOutput = (args.includeOutput as boolean) ?? false;
+      const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
+      if (!node) throw new Error(`Node not found: ${nodeIdStr}`);
+
+      const nodeIdBytes = parseUlid(nodeIdStr);
+
+      // Base info (always returned)
+      const result: Record<string, unknown> = {
+        error: node.info ?? undefined,
+        id: node.id,
+        kind: node.kind,
+        name: node.name,
+        state: node.state,
+      };
+
+      // Type-specific config
+      switch (node.kind) {
+        case 'Condition': {
+          const [condData] = await queryCollection((_) =>
+            _.from({ cond: conditionCollection }).where((_) => eq(_.cond.nodeId, nodeIdBytes)).findOne(),
+          );
+          result.condition = condData?.condition ?? '';
+          break;
+        }
+        case 'For': {
+          const [forData] = await queryCollection((_) =>
+            _.from({ f: forCollection }).where((_) => eq(_.f.nodeId, nodeIdBytes)).findOne(),
+          );
+          result.iterations = forData?.iterations;
+          result.condition = forData?.condition ?? '';
+          result.errorHandling = forData?.errorHandling === 1 ? 'break' : 'continue';
+          break;
+        }
+        case 'ForEach': {
+          const [feData] = await queryCollection((_) =>
+            _.from({ fe: forEachCollection }).where((_) => eq(_.fe.nodeId, nodeIdBytes)).findOne(),
+          );
+          result.path = feData?.path ?? '';
+          result.condition = feData?.condition ?? '';
+          result.errorHandling = feData?.errorHandling === 1 ? 'break' : 'continue';
+          break;
+        }
+        case 'HTTP': {
+          if (!node.httpId) break;
+          const httpIdBytes = parseUlid(node.httpId);
+
+          const [httpData] = await queryCollection((_) =>
+            _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
+          );
+
+          const searchParams = await queryCollection((_) =>
+            _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
+          );
+
+          const headers = await queryCollection((_) =>
+            _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
+          );
+
+          const bodyRaw = await queryCollection((_) =>
+            _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
+          );
+
+          const asserts = await queryCollection((_) =>
+            _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
+          );
+
+          const HTTP_METHOD_NAMES: Record<number, string> = {
+            0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
+            5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
+          };
+
+          result.httpId = node.httpId;
+          result.url = httpData?.url ?? '';
+          result.method = HTTP_METHOD_NAMES[httpData?.method ?? 0] ?? 'UNSPECIFIED';
+          result.headers = headers.map((h) => ({
+            enabled: h.enabled,
+            id: h.httpHeaderId ? Ulid.construct(h.httpHeaderId).toCanonical() : undefined,
+            key: h.key,
+            value: h.value,
+          }));
+          result.searchParams = searchParams.map((sp) => ({
+            enabled: sp.enabled,
+            id: sp.httpSearchParamId ? Ulid.construct(sp.httpSearchParamId).toCanonical() : undefined,
+            key: sp.key,
+            value: sp.value,
+          }));
+          result.body = bodyRaw.length > 0 ? bodyRaw[0]?.data : undefined;
+          result.assertions = asserts.map((a) => ({
+            enabled: a.enabled,
+            id: a.httpAssertId ? Ulid.construct(a.httpAssertId).toCanonical() : undefined,
+            value: a.value,
+          }));
+          break;
+        }
+        case 'JavaScript': {
+          const [jsData] = await queryCollection((_) =>
+            _.from({ js: jsCollection }).where((_) => eq(_.js.nodeId, nodeIdBytes)).findOne(),
+          );
+          result.code = jsData?.code ?? '';
+          break;
+        }
+      }
+
+      // Query execution data fresh from collection (not cached flowContext)
+      const allExecs = await queryCollection((_) =>
+        _.from({ exec: executionCollection }),
+      );
+      const nodeExecs = allExecs
+        .filter((e) => e.nodeId != null && Ulid.construct(e.nodeId).toCanonical() === nodeIdStr)
+        .sort((a, b) => {
+          if (!a.completedAt && !b.completedAt) return 0;
+          if (!a.completedAt) return 1;
+          if (!b.completedAt) return -1;
+          return Number(b.completedAt - a.completedAt);
+        });
+
+      if (nodeExecs.length > 0) {
+        const latest = nodeExecs[0]!;
+        result.execution = {
+          completedAt: latest.completedAt instanceof Date
+            ? latest.completedAt.toISOString()
+            : latest.completedAt ? String(latest.completedAt) : undefined,
+          error: latest.error ?? undefined,
+          state: FLOW_ITEM_STATE_NAMES[latest.state] ?? 'Unknown',
+        };
+
+        if (includeOutput) {
+          const MAX_OUTPUT_LENGTH = 10000;
+          const truncateData = (data: unknown): unknown => {
+            if (data == null) return data;
+            const str = typeof data === 'string' ? data : JSON.stringify(data);
+            if (str.length <= MAX_OUTPUT_LENGTH) return data;
+            return {
+              _originalLength: str.length,
+              _truncated: true,
+              preview: str.slice(0, MAX_OUTPUT_LENGTH) + '...',
+            };
+          };
+          (result.execution as Record<string, unknown>).input = truncateData(latest.input);
+          (result.execution as Record<string, unknown>).output = truncateData(latest.output);
+        }
+      }
+
+      return result;
+    }
+
+    case 'updateNodeCode': {
+      const nodeId = parseUlid(args.nodeId as string);
+      const code = args.code as string;
+
+      jsCollection.utils.update({
+        code: `export default function(ctx) {\n  ${code}\n}`,
+        nodeId,
+      });
+
+      return { success: true };
+    }
+
+    case 'updateNodeConfig': {
+      const nodeId = parseUlid(args.nodeId as string);
+      const updates: Record<string, unknown> = { nodeId };
+
+      if (args.name) updates.name = args.name;
+      if (args.position) updates.position = args.position;
+
+      nodeCollection.utils.update(updates);
+      return { success: true };
+    }
+
+    case 'updateVariable': {
+      const flowVariableId = parseUlid(args.flowVariableId as string);
+      const updates: Record<string, unknown> = { flowVariableId };
+
+      if (args.key !== undefined) updates.key = args.key;
+      if (args.value !== undefined) updates.value = args.value;
+      if (args.enabled !== undefined) updates.enabled = args.enabled;
+      if (args.description !== undefined) updates.description = args.description;
+      if (args.order !== undefined) updates.order = args.order;
+
+      variableCollection.utils.update(updates);
+      return { success: true };
     }
 
     default:

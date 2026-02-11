@@ -16,9 +16,7 @@ import './styles.css';
 pipe(configProviderFromMetaEnv({ VERSION: packageJson.version }), Layer.setConfigProvider, addGlobalLayer);
 
 // Trigger cleanup of old agent log files (7-day retention)
-if (window.electron?.agentLog) {
-  window.electron.agentLog.cleanup();
-}
+window.electron.agentLog.cleanup();
 
 const updateCheckAtom = runtimeAtom.atom(
   Effect.gen(function* () {

@@ -45,8 +45,8 @@ function pascalToWords(name: string): string[] {
 export type CrudOperation = 'Delete' | 'Insert' | 'Update';
 
 export interface IncludeFromModel {
-  fromModel: string;
   fields: string[];
+  fromModel: string;
 }
 
 export interface MutationToolOptions {
@@ -62,8 +62,8 @@ export interface MutationToolOptions {
 export const mutationTools = makeStateMap<Model, MutationToolOptions[]>('mutationTools');
 
 interface RawIncludeFromModel {
-  fromModel: string;
   fields: string[];
+  fromModel: string;
 }
 
 interface RawMutationToolOptions {

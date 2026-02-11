@@ -14,9 +14,9 @@ import { Schema } from 'effect';
 export const UlidId = Schema.String.pipe(
   Schema.pattern(/^[0-9A-HJKMNP-TV-Z]{26}$/),
   Schema.annotations({
-    title: 'ULID',
     description: 'A ULID (Universally Unique Lexicographically Sortable Identifier)',
     examples: ['01ARZ3NDEKTSV4RRFFQ69G5FAV'],
+    title: 'ULID',
   }),
 );
 
@@ -25,8 +25,8 @@ export const UlidId = Schema.String.pipe(
  */
 export const FlowId = UlidId.pipe(
   Schema.annotations({
-    identifier: 'flowId',
     description: 'The ULID of the workflow',
+    identifier: 'flowId',
   }),
 );
 
@@ -35,8 +35,8 @@ export const FlowId = UlidId.pipe(
  */
 export const NodeId = UlidId.pipe(
   Schema.annotations({
-    identifier: 'nodeId',
     description: 'The ULID of the node',
+    identifier: 'nodeId',
   }),
 );
 
@@ -45,8 +45,8 @@ export const NodeId = UlidId.pipe(
  */
 export const EdgeId = UlidId.pipe(
   Schema.annotations({
-    identifier: 'edgeId',
     description: 'The ULID of the edge',
+    identifier: 'edgeId',
   }),
 );
 
@@ -67,8 +67,8 @@ export const Position = Schema.Struct({
   ),
 }).pipe(
   Schema.annotations({
-    identifier: 'Position',
     description: 'Position on the canvas',
+    identifier: 'Position',
   }),
 );
 
@@ -93,16 +93,16 @@ export const OptionalPosition = Schema.optional(
 
 export const ErrorHandling = Schema.Literal('ignore', 'break').pipe(
   Schema.annotations({
-    identifier: 'ErrorHandling',
     description: 'How to handle errors: "ignore" continues, "break" stops the loop',
+    identifier: 'ErrorHandling',
   }),
 );
 
 export const SourceHandle = Schema.Literal('then', 'else', 'loop').pipe(
   Schema.annotations({
-    identifier: 'SourceHandle',
     description:
       'Output handle for branching nodes. Use "then"/"else" for Condition nodes, "loop"/"then" for For/ForEach nodes.',
+    identifier: 'SourceHandle',
   }),
 );
 
@@ -120,8 +120,8 @@ export const ApiCategory = Schema.Literal(
   'developer',
 ).pipe(
   Schema.annotations({
-    identifier: 'ApiCategory',
     description: 'Category of the API',
+    identifier: 'ApiCategory',
   }),
 );
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 import { eq, useLiveQuery } from '@tanstack/react-db';
 import { Ulid } from 'id128';
 import { FlowItemState, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
@@ -15,32 +16,32 @@ import { queryCollection } from '~/shared/lib';
 import type { EdgeInfo, FlowContextData, NodeExecutionInfo, NodeInfo, VariableInfo } from './types';
 
 const NODE_KIND_NAMES: Record<number, string> = {
-  [NodeKind.UNSPECIFIED]: 'Unknown',
-  [NodeKind.MANUAL_START]: 'ManualStart',
-  [NodeKind.HTTP]: 'HTTP',
   [NodeKind.CONDITION]: 'Condition',
   [NodeKind.FOR]: 'For',
   [NodeKind.FOR_EACH]: 'ForEach',
+  [NodeKind.HTTP]: 'HTTP',
   [NodeKind.JS]: 'JavaScript',
+  [NodeKind.MANUAL_START]: 'ManualStart',
+  [NodeKind.UNSPECIFIED]: 'Unknown',
 };
 
 const FLOW_ITEM_STATE_NAMES: Record<number, string> = {
-  [FlowItemState.UNSPECIFIED]: 'Idle',
+  [FlowItemState.CANCELED]: 'Canceled',
+  [FlowItemState.FAILURE]: 'Failure',
   [FlowItemState.RUNNING]: 'Running',
   [FlowItemState.SUCCESS]: 'Success',
-  [FlowItemState.FAILURE]: 'Failure',
-  [FlowItemState.CANCELED]: 'Canceled',
+  [FlowItemState.UNSPECIFIED]: 'Idle',
 };
 
 const HTTP_METHOD_NAMES: Record<number, string> = {
-  [HttpMethod.UNSPECIFIED]: 'UNSPECIFIED',
-  [HttpMethod.GET]: 'GET',
-  [HttpMethod.POST]: 'POST',
-  [HttpMethod.PUT]: 'PUT',
-  [HttpMethod.PATCH]: 'PATCH',
   [HttpMethod.DELETE]: 'DELETE',
+  [HttpMethod.GET]: 'GET',
   [HttpMethod.HEAD]: 'HEAD',
   [HttpMethod.OPTIONS]: 'OPTIONS',
+  [HttpMethod.PATCH]: 'PATCH',
+  [HttpMethod.POST]: 'POST',
+  [HttpMethod.PUT]: 'PUT',
+  [HttpMethod.UNSPECIFIED]: 'UNSPECIFIED',
 };
 
 const escapeXml = (s: string): string =>
@@ -126,14 +127,14 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
       const httpId = n.kind === NodeKind.HTTP ? nodeHttpMap.get(nodeIdStr) : undefined;
       const httpMethod = httpId ? httpMethodMap.get(httpId) : undefined;
       return {
-        id: nodeIdStr,
-        name: n.name,
-        kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
-        position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
-        state: FLOW_ITEM_STATE_NAMES[n.state] ?? 'Idle',
-        info: n.info ?? undefined,
         httpId,
         httpMethod,
+        id: nodeIdStr,
+        info: n.info ?? undefined,
+        kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+        name: n.name,
+        position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
+        state: FLOW_ITEM_STATE_NAMES[n.state] ?? 'Idle',
       };
     });
 
@@ -141,18 +142,18 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
     .filter((e) => e.edgeId != null)
     .map((e) => ({
       id: Ulid.construct(e.edgeId).toCanonical(),
+      sourceHandle: e.sourceHandle !== undefined ? String(e.sourceHandle) : undefined,
       sourceId: Ulid.construct(e.sourceId).toCanonical(),
       targetId: Ulid.construct(e.targetId).toCanonical(),
-      sourceHandle: e.sourceHandle !== undefined ? String(e.sourceHandle) : undefined,
     }));
 
   const variables: VariableInfo[] = (variablesData ?? [])
     .filter((v) => v.flowVariableId != null)
     .map((v) => ({
+      enabled: v.enabled,
       id: Ulid.construct(v.flowVariableId).toCanonical(),
       key: v.key,
       value: v.value,
-      enabled: v.enabled,
     }));
 
   // Only keep the most recent execution per node to limit context size
@@ -169,33 +170,33 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
 
   const executions: NodeExecutionInfo[] = Array.from(executionsByNode.values())
     .map((e) => ({
-      id: Ulid.construct(e.nodeExecutionId).toCanonical(),
-      nodeId: Ulid.construct(e.nodeId).toCanonical(),
-      name: e.name,
-      state: FLOW_ITEM_STATE_NAMES[e.state] ?? 'Idle',
-      error: e.error ?? undefined,
-      input: e.input ?? undefined,
-      output: e.output ?? undefined,
       completedAt: e.completedAt instanceof Date ? e.completedAt.toISOString() : e.completedAt,
+      error: e.error ?? undefined,
+      id: Ulid.construct(e.nodeExecutionId).toCanonical(),
+      input: e.input ?? undefined,
+      name: e.name,
+      nodeId: Ulid.construct(e.nodeId).toCanonical(),
+      output: e.output ?? undefined,
+      state: FLOW_ITEM_STATE_NAMES[e.state] ?? 'Idle',
     }));
 
   return {
+    edges,
+    executions,
     flowId: Ulid.construct(flowId).toCanonical(),
     nodes,
-    edges,
     variables,
-    executions,
   };
 };
 
-type FlowCollections = {
-  nodeCollection: ReturnType<typeof useApiCollection<typeof NodeCollectionSchema>>;
+interface FlowCollections {
   edgeCollection: ReturnType<typeof useApiCollection<typeof EdgeCollectionSchema>>;
-  variableCollection: ReturnType<typeof useApiCollection<typeof FlowVariableCollectionSchema>>;
   executionCollection: ReturnType<typeof useApiCollection<typeof NodeExecutionCollectionSchema>>;
-  nodeHttpCollection: ReturnType<typeof useApiCollection<typeof NodeHttpCollectionSchema>>;
   httpCollection: ReturnType<typeof useApiCollection<typeof HttpCollectionSchema>>;
-};
+  nodeCollection: ReturnType<typeof useApiCollection<typeof NodeCollectionSchema>>;
+  nodeHttpCollection: ReturnType<typeof useApiCollection<typeof NodeHttpCollectionSchema>>;
+  variableCollection: ReturnType<typeof useApiCollection<typeof FlowVariableCollectionSchema>>;
+}
 
 /**
  * Async version of useFlowContext that queries collections directly.
@@ -206,7 +207,7 @@ export const refreshFlowContext = async (
   flowId: Uint8Array,
   collections: FlowCollections,
 ): Promise<FlowContextData> => {
-  const { nodeCollection, edgeCollection, variableCollection, executionCollection, nodeHttpCollection, httpCollection } =
+  const { edgeCollection, executionCollection, httpCollection, nodeCollection, nodeHttpCollection, variableCollection } =
     collections;
 
   const nodesData = await queryCollection((_) =>
@@ -257,14 +258,14 @@ export const refreshFlowContext = async (
       const httpId = n.kind === NodeKind.HTTP ? nodeHttpMap.get(nodeIdStr) : undefined;
       const httpMethod = httpId ? httpMethodMap.get(httpId) : undefined;
       return {
-        id: nodeIdStr,
-        name: n.name,
-        kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
-        position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
-        state: FLOW_ITEM_STATE_NAMES[n.state] ?? 'Idle',
-        info: n.info ?? undefined,
         httpId,
         httpMethod,
+        id: nodeIdStr,
+        info: n.info ?? undefined,
+        kind: NODE_KIND_NAMES[n.kind] ?? 'Unknown',
+        name: n.name,
+        position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
+        state: FLOW_ITEM_STATE_NAMES[n.state] ?? 'Idle',
       };
     });
 
@@ -272,18 +273,18 @@ export const refreshFlowContext = async (
     .filter((e) => e.edgeId != null)
     .map((e) => ({
       id: Ulid.construct(e.edgeId).toCanonical(),
+      sourceHandle: e.sourceHandle !== undefined ? String(e.sourceHandle) : undefined,
       sourceId: Ulid.construct(e.sourceId).toCanonical(),
       targetId: Ulid.construct(e.targetId).toCanonical(),
-      sourceHandle: e.sourceHandle !== undefined ? String(e.sourceHandle) : undefined,
     }));
 
   const variables: VariableInfo[] = variablesData
     .filter((v) => v.flowVariableId != null)
     .map((v) => ({
+      enabled: v.enabled,
       id: Ulid.construct(v.flowVariableId).toCanonical(),
       key: v.key,
       value: v.value,
-      enabled: v.enabled,
     }));
 
   const executionsByNode = new Map<string, (typeof executionsData)[0]>();
@@ -297,22 +298,22 @@ export const refreshFlowContext = async (
   }
 
   const executions: NodeExecutionInfo[] = Array.from(executionsByNode.values()).map((e) => ({
-    id: Ulid.construct(e.nodeExecutionId).toCanonical(),
-    nodeId: Ulid.construct(e.nodeId).toCanonical(),
-    name: e.name,
-    state: FLOW_ITEM_STATE_NAMES[e.state] ?? 'Idle',
-    error: e.error ?? undefined,
-    input: e.input ?? undefined,
-    output: e.output ?? undefined,
     completedAt: e.completedAt instanceof Date ? e.completedAt.toISOString() : e.completedAt,
+    error: e.error ?? undefined,
+    id: Ulid.construct(e.nodeExecutionId).toCanonical(),
+    input: e.input ?? undefined,
+    name: e.name,
+    nodeId: Ulid.construct(e.nodeId).toCanonical(),
+    output: e.output ?? undefined,
+    state: FLOW_ITEM_STATE_NAMES[e.state] ?? 'Idle',
   }));
 
   return {
+    edges,
+    executions,
     flowId: Ulid.construct(flowId).toCanonical(),
     nodes,
-    edges,
     variables,
-    executions,
   };
 };
 
@@ -401,7 +402,7 @@ const buildXmlFlowBlock = (context: FlowContextData): string => {
   // 4. Compute endpoint set (sequential nodes with no outgoing edges)
   const endpointSet = new Set(
     context.nodes
-      .filter((n) => ['ManualStart', 'JavaScript', 'HTTP'].includes(n.kind) && !outgoingEdges.has(n.id))
+      .filter((n) => ['HTTP', 'JavaScript', 'ManualStart'].includes(n.kind) && !outgoingEdges.has(n.id))
       .map((n) => n.id),
   );
 
@@ -472,7 +473,7 @@ const buildXmlCompactSummary = (context: FlowContextData): string => {
   // Find endpoint nodes
   const outgoing = new Set(context.edges.map((e) => e.sourceId));
   const endpoints = context.nodes.filter(
-    (n) => ['ManualStart', 'JavaScript', 'HTTP'].includes(n.kind) && !outgoing.has(n.id),
+    (n) => ['HTTP', 'JavaScript', 'ManualStart'].includes(n.kind) && !outgoing.has(n.id),
   );
 
   const lines: string[] = [`<flow-update nodes="${context.nodes.length}" edges="${context.edges.length}">`];

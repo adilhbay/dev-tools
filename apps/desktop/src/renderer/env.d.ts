@@ -17,8 +17,8 @@ declare global {
       };
 
       agentLog: {
-        write: (fileName: string, jsonLine: string) => void;
         cleanup: () => void;
+        write: (fileName: string, jsonLine: string) => void;
       };
     };
   }
