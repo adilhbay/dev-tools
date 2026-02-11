@@ -1,12 +1,17 @@
 import { FormEvent, KeyboardEvent, use, useEffect, useMemo, useRef, useState } from 'react';
 import { FiArrowUp, FiChevronUp, FiTrash2, FiX } from 'react-icons/fi';
 import * as XF from '@xyflow/react';
+import { eq, useLiveQuery } from '@tanstack/react-db';
+import { Ulid } from 'id128';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { NodeCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
 import { Button } from '@the-dev-tools/ui/button';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
 import { useAgentChat, type Message, type ToolCall } from '~/features/agent';
+import { useApiCollection } from '~/shared/api';
 import { FlowContext } from './context';
+import { nodeClientCollection } from './node';
 
 // ---------------------------------------------------------------------------
 // Tool call display helpers
@@ -106,11 +111,6 @@ export const AgentPanel = () => {
       <div className={tw`mx-2 mt-2 flex items-center gap-2 rounded-[4px] border border-[var(--border)] bg-[var(--surface-4)] px-3 py-1.5`}>
         <div className={tw`flex flex-1 items-center gap-2 truncate text-sm font-medium tracking-[0.28px] text-[var(--text-primary)]`}>
           Agent
-          {selectedNodeIds.length > 0 && (
-            <span className={tw`rounded-[40px] border border-[var(--border)] bg-[var(--surface-5)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]`}>
-              ● {selectedNodeIds.length} node{selectedNodeIds.length !== 1 ? 's' : ''} selected
-            </span>
-          )}
         </div>
 
         <Button
@@ -155,6 +155,7 @@ export const AgentPanel = () => {
 
       {/* Input */}
       <div className={tw`m-2 mt-0 rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2.5 py-1.5`}>
+        <SelectedNodesBar selectedNodeIds={selectedNodeIds} />
         <div className={tw`flex items-end gap-2`}>
           <span className={tw`py-1 text-[var(--brand-tertiary-2)]`}>&gt;</span>
           <textarea
@@ -175,6 +176,68 @@ export const AgentPanel = () => {
           {isLoading ? <AbortButton onClick={cancel} /> : <SendButton onClick={handleSubmit} disabled={!input.trim()} />}
         </div>
       </div>
+    </div>
+  );
+};
+
+const SelectedNodesBar = ({ selectedNodeIds }: { selectedNodeIds: string[] }) => {
+  const { flowId } = use(FlowContext);
+  const nodeCollection = useApiCollection(NodeCollectionSchema);
+
+  const { data: flowNodes } = useLiveQuery(
+    (_) =>
+      _.from({ node: nodeCollection })
+        .where((_) => eq(_.node.flowId, flowId))
+        .fn.select((_) => ({
+          id: Ulid.construct(_.node.nodeId).toCanonical(),
+          name: _.node.name,
+        })),
+    [nodeCollection, flowId],
+  );
+
+  const selectedNodes = useMemo(
+    () => flowNodes.filter((_) => selectedNodeIds.includes(_.id)),
+    [flowNodes, selectedNodeIds],
+  );
+
+  if (selectedNodes.length === 0) return null;
+
+  const handleDeselect = (id: string) => {
+    nodeClientCollection.update(id, (_) => (_.selected = false));
+  };
+
+  const handleClearAll = () => {
+    for (const id of selectedNodeIds) {
+      nodeClientCollection.update(id, (_) => (_.selected = false));
+    }
+  };
+
+  return (
+    <div className={tw`flex flex-wrap items-center gap-1.5 pb-1.5`}>
+      {selectedNodes.map((node) => (
+        <div
+          key={node.id}
+          className={tw`flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-5)] px-1.5 py-0.5 text-xs font-medium text-[var(--text-secondary)]`}
+        >
+          <span className={tw`max-w-[120px] truncate`}>{node.name}</span>
+          <button
+            type='button'
+            onClick={() => handleDeselect(node.id)}
+            className={tw`rounded-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]`}
+          >
+            <FiX className={tw`size-3`} />
+          </button>
+        </div>
+      ))}
+      {selectedNodes.length >= 2 && (
+        <button
+          type='button'
+          onClick={handleClearAll}
+          className={tw`text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)]`}
+        >
+          Clear all
+        </button>
+      )}
     </div>
   );
 };
