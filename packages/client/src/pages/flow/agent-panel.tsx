@@ -58,8 +58,9 @@ const getToolBrief = (args: Record<string, unknown>): string | null => {
 
 export const AgentPanel = () => {
   const { flowId, setAgentPanelOpen } = use(FlowContext);
-  const selectedNodeIds = XF.useStore((s) =>
-    s.nodes.filter((n) => n.selected).map((n) => n.id),
+  const selectedNodeIds = XF.useStore(
+    (s) => s.nodes.filter((n) => n.selected).map((n) => n.id),
+    (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
   );
   const { messages, isLoading, error, streamingContent, sendMessage, clearMessages, cancel } = useAgentChat({ flowId, selectedNodeIds });
 
@@ -155,7 +156,7 @@ export const AgentPanel = () => {
 
       {/* Input */}
       <div className={tw`m-2 mt-0 rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-4)] px-2.5 py-1.5`}>
-        <SelectedNodesBar selectedNodeIds={selectedNodeIds} />
+        {selectedNodeIds.length > 0 && <SelectedNodesBar selectedNodeIds={selectedNodeIds} />}
         <div className={tw`flex items-end gap-2`}>
           <span className={tw`py-1 text-[var(--brand-tertiary-2)]`}>&gt;</span>
           <textarea
