@@ -570,7 +570,7 @@ const TerminalMessage = ({
   }
 
   if (message.role === 'tool') {
-    return <ToolResultMessage content={message.content} />;
+    return null;
   }
 
   if (message.role === 'assistant' && message.toolCalls) {
@@ -688,37 +688,4 @@ const TerminalMessage = ({
   );
 };
 
-const ToolResultMessage = ({ content }: { content: string }) => {
-  const [expanded, setExpanded] = useState(false);
-  const preview = useMemo(() => {
-    const maxLen = 80;
-    if (content.length <= maxLen) return content;
-    return content.slice(0, maxLen) + '...';
-  }, [content]);
 
-  const isLong = content.length > 80;
-
-  return (
-    <div className={tw`
-      max-w-full min-w-0 overflow-hidden rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2 py-1 text-xs
-      text-(--text-secondary)
-    `}>
-      <button
-        className={tw`flex w-full min-w-0 items-center gap-1 text-left hover:text-(--text-muted)`}
-        onClick={() => isLong && void setExpanded(!expanded)}
-        type='button'
-      >
-        <span className={tw`shrink-0 text-(--text-muted)`}>←</span>
-        <span className={tw`min-w-0 font-mono text-xs text-(--text-secondary) ${expanded ? 'whitespace-pre-wrap break-all' : 'overflow-hidden text-ellipsis whitespace-nowrap'}
-        `}>
-          {expanded ? content : preview}
-        </span>
-        {isLong && (
-          <span className={tw`ml-1 shrink-0 text-[10px] text-(--text-muted)`}>
-            {expanded ? '▲' : '▼'}
-          </span>
-        )}
-      </button>
-    </div>
-  );
-};
