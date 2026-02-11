@@ -405,10 +405,35 @@ const TerminalMessage = ({ message, isActive }: { message: Message; isActive: bo
 
   if (message.role === 'assistant' && message.toolCalls) {
     return (
-      <div className={tw`space-y-0.5 px-1`}>
-        {message.toolCalls.map((tc) => (
-          <ToolCallItem key={tc.id} toolCall={tc} isActive={isActive} />
-        ))}
+      <div className={tw`space-y-1 px-1`}>
+        {message.content && (
+          <div className={tw`text-[var(--text-secondary)]`}>
+            <Markdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code: ({ children, className }) => {
+                  const isBlock = className?.startsWith('language-');
+                  return isBlock ? (
+                    <pre className={tw`my-1 overflow-x-auto rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-1)] p-2 text-xs text-[var(--text-secondary)]`}>
+                      <code>{children}</code>
+                    </pre>
+                  ) : (
+                    <code className={tw`rounded border border-[var(--border-1)] bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[0.85em] text-[var(--text-primary)]`}>{children}</code>
+                  );
+                },
+                pre: ({ children }) => <>{children}</>,
+                p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-[var(--text-primary)]`}>{children}</p>,
+              }}
+            >
+              {message.content}
+            </Markdown>
+          </div>
+        )}
+        <div className={tw`space-y-0.5`}>
+          {message.toolCalls.map((tc) => (
+            <ToolCallItem key={tc.id} toolCall={tc} isActive={isActive} />
+          ))}
+        </div>
       </div>
     );
   }
