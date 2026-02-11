@@ -9,6 +9,7 @@ import { NodeCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/flo
 import { Button } from '@the-dev-tools/ui/button';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
 import { type Message, type ToolCall, useAgentChat } from '~/features/agent';
+import { useOpenRouterKey } from '~/features/agent/use-openrouter-key';
 import { useApiCollection } from '~/shared/api';
 import { FlowContext } from './context';
 import { nodeClientCollection } from './node';
@@ -58,11 +59,12 @@ const getToolBrief = (args: Record<string, unknown>): null | string => {
 
 export const AgentPanel = () => {
   const { flowId, setAgentPanelOpen } = use(FlowContext);
+  const { apiKey, setApiKey } = useOpenRouterKey();
   const selectedNodeIds = XF.useStore(
     (s) => s.nodes.filter((n) => n.selected).map((n) => n.id),
     (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
   );
-  const { cancel, clearMessages, error, isLoading, messages, sendMessage, streamingContent } = useAgentChat({ flowId, selectedNodeIds });
+  const { cancel, clearMessages, error, isLoading, messages, sendMessage, streamingContent } = useAgentChat({ apiKey, flowId, selectedNodeIds });
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -136,60 +138,66 @@ export const AgentPanel = () => {
         </Button>
       </div>
 
-      {/* Messages */}
-      <div className={tw`flex-1 overflow-y-auto px-2 pt-1 pb-2 select-text`}>
-        {messages.length === 0 ? (
-          <div className={tw`text-sm text-(--text-muted)`}>
-            <p>Ask me to create or modify workflow nodes.</p>
-            <p className={tw`mt-1 text-(--text-subtle)`}>
-              e.g. &quot;Create a JavaScript node that returns hello world&quot;
-            </p>
+      {apiKey ? (
+        <>
+          {/* Messages */}
+          <div className={tw`flex-1 overflow-y-auto px-2 pt-1 pb-2 select-text`}>
+            {messages.length === 0 ? (
+              <div className={tw`text-sm text-(--text-muted)`}>
+                <p>Ask me to create or modify workflow nodes.</p>
+                <p className={tw`mt-1 text-(--text-subtle)`}>
+                  e.g. &quot;Create a JavaScript node that returns hello world&quot;
+                </p>
+              </div>
+            ) : (
+              <div className={tw`space-y-2 py-2`}>
+                {messages.map((message, i) => (
+                  <TerminalMessage isActive={isLoading && i === lastToolCallIdx} key={message.id} message={message} />
+                ))}
+                {isLoading && (streamingContent ? <StreamingMessage content={streamingContent} /> : <ThinkingBlock />)}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+
+            {error && <div className={tw`mt-2 text-(--text-error)`}>{error}</div>}
           </div>
-        ) : (
-          <div className={tw`space-y-2 py-2`}>
-            {messages.map((message, i) => (
-              <TerminalMessage isActive={isLoading && i === lastToolCallIdx} key={message.id} message={message} />
-            ))}
-            {isLoading && (streamingContent ? <StreamingMessage content={streamingContent} /> : <ThinkingBlock />)}
-            <div ref={messagesEndRef} />
+
+          {/* Input */}
+          <div className={tw`m-2 mt-0 rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2.5 py-1.5`}>
+            {selectedNodeIds.length > 0 && <SelectedNodesBar selectedNodeIds={selectedNodeIds} />}
+            <div className={tw`flex items-end gap-2`}>
+              <span className={tw`py-1 text-(--brand-tertiary-2)`}>&gt;</span>
+              <textarea
+                className={tw`
+                  max-h-[120px] min-h-[48px] flex-1 resize-none border-none bg-transparent text-sm font-medium
+                  text-(--text-primary)
+
+                  placeholder:text-(--text-muted)
+
+                  focus:outline-none
+
+                  disabled:text-(--text-subtle)
+                `}
+                disabled={isLoading}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  autoResize();
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder='Type a message...'
+                ref={textareaRef}
+                rows={1}
+                value={input}
+              />
+            </div>
+            <div className={tw`flex justify-end pt-1.5`}>
+              {isLoading ? <AbortButton onClick={cancel} /> : <SendButton disabled={!input.trim()} onClick={handleSubmit} />}
+            </div>
           </div>
-        )}
-
-        {error && <div className={tw`mt-2 text-(--text-error)`}>{error}</div>}
-      </div>
-
-      {/* Input */}
-      <div className={tw`m-2 mt-0 rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2.5 py-1.5`}>
-        {selectedNodeIds.length > 0 && <SelectedNodesBar selectedNodeIds={selectedNodeIds} />}
-        <div className={tw`flex items-end gap-2`}>
-          <span className={tw`py-1 text-(--brand-tertiary-2)`}>&gt;</span>
-          <textarea
-            className={tw`
-              max-h-[120px] min-h-[48px] flex-1 resize-none border-none bg-transparent text-sm font-medium
-              text-(--text-primary)
-
-              placeholder:text-(--text-muted)
-
-              focus:outline-none
-
-              disabled:text-(--text-subtle)
-            `}
-            disabled={isLoading}
-            onChange={(e) => {
-              setInput(e.target.value);
-              autoResize();
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder='Type a message...'
-            ref={textareaRef}
-            rows={1}
-            value={input}
-          />
-        </div>
-        <div className={tw`flex justify-end pt-1.5`}>
-          {isLoading ? <AbortButton onClick={cancel} /> : <SendButton disabled={!input.trim()} onClick={handleSubmit} />}
-        </div>
-      </div>
+        </>
+      ) : (
+        <ApiKeyPrompt onSubmit={setApiKey} />
+      )}
     </div>
   );
 };
@@ -267,6 +275,67 @@ const SelectedNodesBar = ({ selectedNodeIds }: { selectedNodeIds: string[] }) =>
           Clear all
         </button>
       )}
+    </div>
+  );
+};
+
+const ApiKeyPrompt = ({ onSubmit }: { onSubmit: (key: string) => void }) => {
+  const [value, setValue] = useState('');
+
+  const handleSubmit = (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!value.trim()) return;
+    onSubmit(value);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  return (
+    <div className={tw`flex flex-1 flex-col items-center justify-center gap-3 px-4`}>
+      <div className={tw`text-center text-sm text-(--text-muted)`}>
+        <p className={tw`font-medium text-(--text-primary)`}>OpenRouter API Key Required</p>
+        <p className={tw`mt-1`}>
+          Enter your <a className={tw`text-(--brand-secondary) underline`} href='https://openrouter.ai/keys' rel='noreferrer' target='_blank'>OpenRouter API key</a> to use the agent.
+        </p>
+      </div>
+      <div className={tw`flex w-full gap-2`}>
+        <input
+          autoFocus
+          className={tw`
+            flex-1 rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2.5 py-1.5 text-sm text-(--text-primary)
+
+            placeholder:text-(--text-muted)
+
+            focus:border-(--brand-secondary) focus:outline-none
+          `}
+          onChange={(e) => void setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder='sk-or-v1-...'
+          type='password'
+          value={value}
+        />
+        <button
+          className={tw`
+            rounded-[4px] bg-(--c-383838) px-3 py-1.5 text-sm font-medium text-white transition-colors
+
+            hover:bg-(--c-575757)
+
+            disabled:bg-(--c-808080)
+
+            dark:bg-(--c-E0E0E0) dark:text-black dark:hover:bg-(--c-CFCFCF)
+          `}
+          disabled={!value.trim()}
+          onClick={() => void handleSubmit()}
+          type='button'
+        >
+          Save
+        </button>
+      </div>
     </div>
   );
 };

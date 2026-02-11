@@ -41,13 +41,14 @@ import {
   type ToolSchema,
 } from './types';
 
-const openai = new OpenAI({
-  apiKey: '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',
-  baseURL: 'https://openrouter.ai/api/v1',
-  dangerouslyAllowBrowser: true,
-});
-
 const MODEL = 'moonshotai/kimi-k2.5';
+
+const createOpenRouterClient = (apiKey: string) =>
+  new OpenAI({
+    apiKey,
+    baseURL: 'https://openrouter.ai/api/v1',
+    dangerouslyAllowBrowser: true,
+  });
 
 const generateId = () => crypto.randomUUID();
 
@@ -338,6 +339,7 @@ const clientToolSchemas: ToolSchema[] = [
 ];
 
 interface UseAgentChatOptions {
+  apiKey: string;
   flowId: Uint8Array;
   selectedNodeIds?: string[];
 }
@@ -349,7 +351,7 @@ const createInitialAgentChatState = (): AgentChatState => ({
   streamingContent: '',
 });
 
-export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) => {
+export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOptions) => {
   const [state, setState] = useState<AgentChatState>(createInitialAgentChatState);
 
   const { transport } = routes.root.useRouteContext();
@@ -404,6 +406,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       abortControllerRef.current?.abort();
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
+
+      const openai = createOpenRouterClient(apiKey);
 
       const collections: Collections = {
         conditionCollection,
@@ -766,7 +770,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         }
       }
     },
-    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, flowCollection],
+    [apiKey, flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, flowCollection],
   );
 
   const clearMessages = useCallback(() => {
