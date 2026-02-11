@@ -213,7 +213,7 @@ const SelectedNodesBar = ({ selectedNodeIds }: { selectedNodeIds: string[] }) =>
   };
 
   return (
-    <div className={tw`flex flex-wrap items-center gap-1.5 pb-1.5`}>
+    <div className={tw`flex flex-wrap items-center gap-1.5 border-b border-[var(--border-1)] pb-1.5 mb-1.5`}>
       {selectedNodes.map((node) => (
         <div
           key={node.id}
