@@ -9,7 +9,7 @@ import {
 import * as XF from '@xyflow/react';
 import { Array, pipe, Schema } from 'effect';
 import { Ulid } from 'id128';
-import { useContext } from 'react';
+import { useContext, useEffect } from 'react';
 import { FiX } from 'react-icons/fi';
 import { tv } from 'tailwind-variants';
 import { EdgeSchema, FlowItemState, HandleKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
@@ -17,7 +17,7 @@ import { EdgeCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/flo
 import { Button } from '@the-dev-tools/ui/button';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
 import { useApiCollection } from '~/shared/api';
-import { pick } from '~/shared/lib';
+import { pick, queryCollection } from '~/shared/lib';
 import { FlowContext } from './context';
 import { HandleHalo } from './handle';
 
@@ -37,6 +37,34 @@ export const useEdgeState = () => {
   const { flowId } = useContext(FlowContext);
 
   const edgeServerCollection = useApiCollection(EdgeCollectionSchema);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const pruneEdgeClientCache = async () => {
+      const flowEdgeIds = new Set(
+        await queryCollection((_) =>
+          _.from({ edge: edgeServerCollection })
+            .where((_) => eq(_.edge.flowId, flowId))
+            .fn.select((_) => Ulid.construct(_.edge.edgeId).toCanonical()),
+        ),
+      );
+      if (cancelled) return;
+
+      const clientEdgeIds = await queryCollection((_) =>
+        _.from({ client: edgeClientCollection }).fn.select((_) => Ulid.construct(_.client.edgeId).toCanonical()),
+      );
+      if (cancelled) return;
+
+      const staleEdgeIds = clientEdgeIds.filter((id) => !flowEdgeIds.has(id));
+      if (staleEdgeIds.length > 0) edgeClientCollection.delete(staleEdgeIds);
+    };
+
+    void pruneEdgeClientCache();
+    return () => {
+      cancelled = true;
+    };
+  }, [flowId, edgeServerCollection]);
 
   const items = useLiveQuery(
     (_) => {
