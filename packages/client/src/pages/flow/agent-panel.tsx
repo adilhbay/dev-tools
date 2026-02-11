@@ -56,7 +56,7 @@ export const AgentPanel = () => {
   const selectedNodeIds = XF.useStore((s) =>
     s.nodes.filter((n) => n.selected).map((n) => n.id),
   );
-  const { messages, isLoading, error, sendMessage, clearMessages, cancel } = useAgentChat({ flowId, selectedNodeIds });
+  const { messages, isLoading, error, streamingContent, sendMessage, clearMessages, cancel } = useAgentChat({ flowId, selectedNodeIds });
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -71,7 +71,7 @@ export const AgentPanel = () => {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+  }, [messages, isLoading, streamingContent]);
 
   const autoResize = () => {
     const el = textareaRef.current;
@@ -145,7 +145,7 @@ export const AgentPanel = () => {
             {messages.map((message, i) => (
               <TerminalMessage key={message.id} message={message} isActive={isLoading && i === lastToolCallIdx} />
             ))}
-            {isLoading && <ThinkingBlock />}
+            {isLoading && (streamingContent ? <StreamingMessage content={streamingContent} /> : <ThinkingBlock />)}
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -241,6 +241,31 @@ const ThinkingBlock = () => {
     </div>
   );
 };
+
+const StreamingMessage = ({ content }: { content: string }) => (
+  <div className={tw`space-y-1 px-1 text-[var(--text-secondary)]`}>
+    <Markdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code: ({ children, className }) => {
+          const isBlock = className?.startsWith('language-');
+          return isBlock ? (
+            <pre className={tw`my-1 overflow-x-auto rounded-[4px] border border-[var(--border-1)] bg-[var(--surface-1)] p-2 text-xs text-[var(--text-secondary)]`}>
+              <code>{children}</code>
+            </pre>
+          ) : (
+            <code className={tw`rounded border border-[var(--border-1)] bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[0.85em] text-[var(--text-primary)]`}>{children}</code>
+          );
+        },
+        pre: ({ children }) => <>{children}</>,
+        p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-[var(--text-primary)]`}>{children}</p>,
+      }}
+    >
+      {content}
+    </Markdown>
+    <StreamingIndicator />
+  </div>
+);
 
 const SendButton = ({ onClick, disabled }: { onClick: () => void; disabled: boolean }) => (
   <button

@@ -28,6 +28,7 @@ export interface AgentChatState {
   messages: Message[];
   isLoading: boolean;
   error: string | null;
+  streamingContent: string;
 }
 
 export interface FlowContextData {
