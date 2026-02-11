@@ -141,7 +141,7 @@ export const AgentPanel = () => {
       {apiKey ? (
         <>
           {/* Messages */}
-          <div className={tw`flex-1 overflow-y-auto px-2 pt-1 pb-2 select-text`}>
+          <div className={tw`flex-1 overflow-x-hidden overflow-y-auto px-2 pt-1 pb-2 select-text`}>
             {messages.length === 0 ? (
               <div className={tw`text-sm text-(--text-muted)`}>
                 <p>Ask me to create or modify workflow nodes.</p>
@@ -421,7 +421,7 @@ const ThinkingBlock = () => {
 };
 
 const StreamingMessage = ({ content }: { content: string }) => (
-  <div className={tw`space-y-1 px-1 text-(--text-secondary)`}>
+  <div className={tw`min-w-0 space-y-1 px-1 text-(--text-secondary) [overflow-wrap:anywhere]`}>
     <Markdown
       components={{
         code: ({ children, className }) => {
@@ -435,12 +435,12 @@ const StreamingMessage = ({ content }: { content: string }) => (
             </pre>
           ) : (
             <code className={tw`
-              rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
+              break-all rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
               text-(--text-primary)
             `}>{children}</code>
           );
         },
-        p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-(--text-primary)`}>{children}</p>,
+        p: ({ children }) => <p className={tw`mb-1.5 break-words text-sm leading-[1.4] text-(--text-primary) [overflow-wrap:anywhere]`}>{children}</p>,
         pre: ({ children }) => <>{children}</>,
       }}
       remarkPlugins={[remarkGfm]}
@@ -525,11 +525,14 @@ const ToolCallItem = ({ isActive, toolCall: tc }: { isActive: boolean; toolCall:
 const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Message; }) => {
   if (message.role === 'user') {
     return (
-      <div className={tw`flex gap-2`}>
-        <span className={tw`text-(--brand-tertiary-2)`}>&gt;</span>
-        <span className={tw`
-          rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2 py-1 text-sm font-medium text-(--text-primary)
-        `}>
+      <div className={tw`flex min-w-0 gap-2`}>
+        <span className={tw`shrink-0 text-(--brand-tertiary-2)`}>&gt;</span>
+        <span
+          className={tw`
+            min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2 py-1 text-sm font-medium text-(--text-primary)
+          `}
+          title={message.content}
+        >
           {message.content}
         </span>
       </div>
@@ -544,7 +547,7 @@ const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Me
     return (
       <div className={tw`space-y-1 px-1`}>
         {message.content && (
-          <div className={tw`text-(--text-secondary)`}>
+          <div className={tw`min-w-0 text-(--text-secondary) [overflow-wrap:anywhere]`}>
             <Markdown
               components={{
                 code: ({ children, className }) => {
@@ -558,12 +561,12 @@ const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Me
                     </pre>
                   ) : (
                     <code className={tw`
-                      rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
+                      break-all rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
                       text-(--text-primary)
                     `}>{children}</code>
                   );
                 },
-                p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-(--text-primary)`}>{children}</p>,
+                p: ({ children }) => <p className={tw`mb-1.5 break-words text-sm leading-[1.4] text-(--text-primary) [overflow-wrap:anywhere]`}>{children}</p>,
                 pre: ({ children }) => <>{children}</>,
               }}
               remarkPlugins={[remarkGfm]}
@@ -584,7 +587,7 @@ const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Me
   if (!message.content) return null;
 
   return (
-    <div className={tw`space-y-1 px-1 text-(--text-secondary)`}>
+    <div className={tw`min-w-0 space-y-1 px-1 text-(--text-secondary) [overflow-wrap:anywhere]`}>
       <Markdown
         components={{
           a: ({ children, href }) => (
@@ -599,7 +602,7 @@ const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Me
           ),
           blockquote: ({ children }) => (
             <blockquote className={tw`
-              my-1 border-l-2 border-(--border-1) bg-(--surface-4) px-2 py-1 text-(--text-tertiary)
+              my-1 break-words border-l-2 border-(--border-1) bg-(--surface-4) px-2 py-1 text-(--text-tertiary) [overflow-wrap:anywhere]
             `}>
               {children}
             </blockquote>
@@ -615,7 +618,7 @@ const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Me
               </pre>
             ) : (
               <code className={tw`
-                rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
+                break-all rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
                 text-(--text-primary)
               `}>{children}</code>
             );
@@ -623,9 +626,9 @@ const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Me
           h1: ({ children }) => <div className={tw`my-1 text-base font-semibold text-(--text-primary)`}>{children}</div>,
           h2: ({ children }) => <div className={tw`my-1 text-[15px] font-semibold text-(--text-primary)`}>{children}</div>,
           h3: ({ children }) => <div className={tw`my-1 text-sm font-semibold text-(--text-primary)`}>{children}</div>,
-          li: ({ children }) => <li className={tw`text-sm leading-[1.4] text-(--text-secondary)`}>{children}</li>,
+          li: ({ children }) => <li className={tw`break-words text-sm leading-[1.4] text-(--text-secondary) [overflow-wrap:anywhere]`}>{children}</li>,
           ol: ({ children }) => <ol className={tw`my-1 list-decimal space-y-0.5 pl-5`}>{children}</ol>,
-          p: ({ children }) => <p className={tw`mb-1.5 text-sm leading-[1.4] text-(--text-primary)`}>{children}</p>,
+          p: ({ children }) => <p className={tw`mb-1.5 break-words text-sm leading-[1.4] text-(--text-primary) [overflow-wrap:anywhere]`}>{children}</p>,
           pre: ({ children }) => <>{children}</>,
           strong: ({ children }) => <strong className={tw`font-semibold text-(--text-primary)`}>{children}</strong>,
           table: ({ children }) => (
@@ -634,10 +637,10 @@ const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Me
             </div>
           ),
           td: ({ children }) => (
-            <td className={tw`px-2 py-1 text-(--text-secondary)`}>{children}</td>
+            <td className={tw`break-words px-2 py-1 text-(--text-secondary) [overflow-wrap:anywhere]`}>{children}</td>
           ),
           th: ({ children }) => (
-            <th className={tw`px-2 py-1 text-left text-xs font-semibold text-(--text-primary)`}>{children}</th>
+            <th className={tw`break-words px-2 py-1 text-left text-xs font-semibold text-(--text-primary) [overflow-wrap:anywhere]`}>{children}</th>
           ),
           thead: ({ children }) => (
             <thead className={tw`border-b border-(--border-1)`}>{children}</thead>
