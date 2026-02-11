@@ -214,21 +214,29 @@ const SelectedNodesBar = ({ selectedNodeIds }: { selectedNodeIds: string[] }) =>
 
   return (
     <div className={tw`flex flex-wrap items-center gap-1.5 border-b border-[var(--border-1)] pb-1.5 mb-1.5`}>
-      {selectedNodes.map((node) => (
+      {selectedNodes.length > 5 ? (
         <div
-          key={node.id}
           className={tw`flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-5)] px-1.5 py-0.5 text-xs font-medium text-[var(--text-secondary)]`}
         >
-          <span className={tw`max-w-[120px] truncate`}>{node.name}</span>
-          <button
-            type='button'
-            onClick={() => handleDeselect(node.id)}
-            className={tw`rounded-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]`}
-          >
-            <FiX className={tw`size-3`} />
-          </button>
+          <span>{selectedNodes.length} nodes selected</span>
         </div>
-      ))}
+      ) : (
+        selectedNodes.map((node) => (
+          <div
+            key={node.id}
+            className={tw`flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-5)] px-1.5 py-0.5 text-xs font-medium text-[var(--text-secondary)]`}
+          >
+            <span className={tw`max-w-[120px] truncate`}>{node.name}</span>
+            <button
+              type='button'
+              onClick={() => handleDeselect(node.id)}
+              className={tw`rounded-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]`}
+            >
+              <FiX className={tw`size-3`} />
+            </button>
+          </div>
+        ))
+      )}
       {selectedNodes.length >= 2 && (
         <button
           type='button'
