@@ -11,7 +11,7 @@ import {
 import * as XF from '@xyflow/react';
 import { Array, Match, Option, pipe, Schema } from 'effect';
 import { Ulid } from 'id128';
-import { ReactNode, useContext, useEffect, useState } from 'react';
+import { ReactNode, useContext, useState } from 'react';
 import { Button as AriaButton, Key, Tooltip, TooltipTrigger, Tree } from 'react-aria-components';
 import { FiX } from 'react-icons/fi';
 import { TbAlertTriangle, TbCancel, TbRefresh } from 'react-icons/tb';
@@ -34,7 +34,7 @@ import { Select, SelectItem } from '@the-dev-tools/ui/select';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
 import { TextInputField, useEditableTextState } from '@the-dev-tools/ui/text-field';
 import { request, useApiCollection } from '~/shared/api';
-import { eqStruct, pick, queryCollection } from '~/shared/lib';
+import { eqStruct, pick } from '~/shared/lib';
 import { routes } from '~/shared/routes';
 import { FlowContext } from './context';
 
@@ -59,35 +59,6 @@ export const useNodesState = () => {
   const { flowId } = useContext(FlowContext);
 
   const nodeServerCollection = useApiCollection(NodeCollectionSchema);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const pruneNodeClientCache = async () => {
-      const flowNodeIds = new Set(
-        await queryCollection((_) =>
-          _.from({ node: nodeServerCollection })
-            .where((_) => eq(_.node.flowId, flowId))
-            .fn.select((_) => Ulid.construct(_.node.nodeId).toCanonical()),
-        ),
-      );
-      if (cancelled) return;
-
-      const clientNodeIds = await queryCollection((_) =>
-        _.from({ client: nodeClientCollection }).fn.select((_) => Ulid.construct(_.client.nodeId).toCanonical()),
-      );
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      if (cancelled) return;
-
-      const staleNodeIds = clientNodeIds.filter((id) => !flowNodeIds.has(id));
-      if (staleNodeIds.length > 0) nodeClientCollection.delete(staleNodeIds);
-    };
-
-    void pruneNodeClientCache();
-    return () => {
-      cancelled = true;
-    };
-  }, [flowId, nodeServerCollection]);
 
   const items: XF.Node[] = useLiveQuery(
     (_) => {

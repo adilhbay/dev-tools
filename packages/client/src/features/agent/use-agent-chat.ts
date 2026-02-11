@@ -2,8 +2,8 @@
 import { eq } from '@tanstack/react-db';
 import { Ulid } from 'id128';
 import OpenAI from 'openai';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
+import { useCallback, useRef, useState } from 'react';
+import { FlowItemState, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import {
   EdgeCollectionSchema,
   FlowCollectionSchema,
@@ -27,13 +27,14 @@ import { useApiCollection } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
 import { AgentLogger } from './agent-logger';
-import { buildCompactStateSummary, buildSystemPrompt, buildXmlValidationMessage, detectDeadEndNodes, detectOrphanNodes, refreshFlowContext } from './context-builder';
+import { buildCompactStateSummary, buildSystemPrompt, buildXmlValidationMessage, detectDeadEndNodes, detectOrphanNodes, refreshFlowContext, useFlowContext } from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
 import { type Collections, executeToolCall, type ToolExecutorContext } from './tool-executor';
 import { allToolSchemas } from './tool-schemas';
 import {
   type AgentChatState,
   formatToolAsOpenAI,
+  type FlowContextData,
   type Message,
   type OpenAIMessage,
   type ToolCall,
@@ -42,8 +43,8 @@ import {
 } from './types';
 
 const openai = new OpenAI({
-  apiKey: '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',
   baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: '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',
   dangerouslyAllowBrowser: true,
 });
 
@@ -342,18 +343,20 @@ interface UseAgentChatOptions {
   selectedNodeIds?: string[];
 }
 
-const createInitialAgentChatState = (): AgentChatState => ({
-  error: null,
-  isLoading: false,
-  messages: [],
-  streamingContent: '',
-});
-
 export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) => {
-  const [state, setState] = useState<AgentChatState>(createInitialAgentChatState);
+  const [state, setState] = useState<AgentChatState>({
+    messages: [],
+    isLoading: false,
+    error: null,
+    streamingContent: '',
+  });
 
   const { transport } = routes.root.useRouteContext();
-  const flowIdCanonical = Ulid.construct(flowId).toCanonical();
+  const flowContext = useFlowContext(flowId);
+
+  // Use refs to always access latest values in callbacks
+  const flowContextRef = useRef(flowContext);
+  flowContextRef.current = flowContext;
 
   const selectedNodeIdsRef = useRef(selectedNodeIds);
   selectedNodeIdsRef.current = selectedNodeIds;
@@ -363,24 +366,6 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
 
   // Abort controller for cancelling requests
   const abortControllerRef = useRef<AbortController | null>(null);
-  const previousFlowIdRef = useRef(flowIdCanonical);
-
-  useEffect(() => {
-    if (previousFlowIdRef.current === flowIdCanonical) return;
-
-    previousFlowIdRef.current = flowIdCanonical;
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    setState(createInitialAgentChatState());
-  }, [flowIdCanonical]);
-
-  useEffect(
-    () => () => {
-      abortControllerRef.current?.abort();
-      abortControllerRef.current = null;
-    },
-    [],
-  );
 
   const nodeCollection = useApiCollection(NodeCollectionSchema);
   const edgeCollection = useApiCollection(EdgeCollectionSchema);
@@ -405,6 +390,13 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
 
+      // Use ref to get latest flowContext at execution time
+      const currentFlowContext = {
+        ...flowContextRef.current,
+        selectedNodeIds: selectedNodeIdsRef.current,
+      };
+
+      // Build context fresh at execution time to avoid stale closures
       const collections: Collections = {
         conditionCollection,
         edgeCollection,
@@ -422,12 +414,44 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         variableCollection,
       };
 
+      const waitForFlowCompletion = async (): Promise<void> => {
+        const POLL_INTERVAL = 500;
+        const MAX_WAIT = 30_000;
+        const INITIAL_DELAY = 500;
+        let elapsed = 0;
+
+        await new Promise((r) => setTimeout(r, INITIAL_DELAY));
+        elapsed += INITIAL_DELAY;
+
+        while (elapsed < MAX_WAIT) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+          elapsed += POLL_INTERVAL;
+
+          const [flow] = await queryCollection((_) =>
+            _.from({ item: flowCollection })
+              .where((_) => eq(_.item.flowId, flowId))
+              .findOne(),
+          );
+          if (flow && !flow.running) break;
+        }
+      };
+
+      const toolContext: ToolExecutorContext = {
+        collections,
+        flowContext: currentFlowContext,
+        transport,
+        waitForFlowCompletion,
+      };
+
       const userMessage: Message = {
         content,
         id: generateId(),
         role: 'user',
         timestamp: Date.now(),
       };
+
+      const logger = new AgentLogger(currentFlowContext.flowId);
+      logger.logSessionStart(currentFlowContext.flowId, content);
 
       setState((prev) => ({
         ...prev,
@@ -436,53 +460,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         messages: [...prev.messages, userMessage],
       }));
 
-      let logger: AgentLogger | null = null;
-
       try {
-        const currentFlowContext = {
-          ...(await refreshFlowContext(flowId, {
-            edgeCollection,
-            executionCollection,
-            httpCollection,
-            nodeCollection,
-            nodeHttpCollection,
-            variableCollection,
-          })),
-          selectedNodeIds: selectedNodeIdsRef.current,
-        };
-
-        const waitForFlowCompletion = async (): Promise<void> => {
-          const POLL_INTERVAL = 500;
-          const MAX_WAIT = 30_000;
-          const INITIAL_DELAY = 500;
-          let elapsed = 0;
-
-          await new Promise((r) => setTimeout(r, INITIAL_DELAY));
-          elapsed += INITIAL_DELAY;
-
-          while (elapsed < MAX_WAIT) {
-            await new Promise((r) => setTimeout(r, POLL_INTERVAL));
-            elapsed += POLL_INTERVAL;
-
-            const [flow] = await queryCollection((_) =>
-              _.from({ item: flowCollection })
-                .where((_) => eq(_.item.flowId, flowId))
-                .findOne(),
-            );
-            if (flow && !flow.running) break;
-          }
-        };
-
-        const toolContext: ToolExecutorContext = {
-          collections,
-          flowContext: currentFlowContext,
-          transport,
-          waitForFlowCompletion,
-        };
-
-        logger = new AgentLogger(currentFlowContext.flowId);
-        logger.logSessionStart(currentFlowContext.flowId, content);
-
         const systemPrompt = buildSystemPrompt(currentFlowContext);
         const tools = [...allToolSchemas, ...clientToolSchemas].map(formatToolAsOpenAI);
 
@@ -747,12 +725,12 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       } catch (error) {
         // Ignore abort errors
         if (error instanceof Error && error.name === 'AbortError') {
-          logger?.logSessionEnd(false, true);
+          logger.logSessionEnd(false, true);
           setState((prev) => ({ ...prev, isLoading: false, streamingContent: '' }));
           return;
         }
-        logger?.logError(error, 'sendMessage');
-        logger?.logSessionEnd(false, false);
+        logger.logError(error, 'sendMessage');
+        logger.logSessionEnd(false, false);
         const errorMessage = error instanceof Error ? error.message : 'An error occurred';
         setState((prev) => ({
           ...prev,
@@ -772,7 +750,12 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
   const clearMessages = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
-    setState(createInitialAgentChatState());
+    setState({
+      messages: [],
+      isLoading: false,
+      error: null,
+      streamingContent: '',
+    });
   }, []);
 
   const cancel = useCallback(() => {

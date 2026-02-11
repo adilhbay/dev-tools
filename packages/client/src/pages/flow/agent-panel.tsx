@@ -209,10 +209,9 @@ const SelectedNodesBar = ({ selectedNodeIds }: { selectedNodeIds: string[] }) =>
     [nodeCollection, flowId],
   );
 
-  const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
   const selectedNodes = useMemo(
-    () => flowNodes.filter((_) => selectedNodeIdSet.has(_.id)),
-    [flowNodes, selectedNodeIdSet],
+    () => flowNodes.filter((_) => selectedNodeIds.includes(_.id)),
+    [flowNodes, selectedNodeIds],
   );
 
   if (selectedNodes.length === 0) return null;

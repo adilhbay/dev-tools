@@ -88,7 +88,6 @@ export const nodeTypes: XF.NodeTypes = {
 
 export const FlowEditPage = () => {
   const { flowId } = routes.dashboard.workspace.flow.route.useLoaderData();
-  const flowIdCanonical = Ulid.construct(flowId).toCanonical();
 
   const [sidebar, setSidebar] = useState<ReactNode>(null);
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
@@ -100,7 +99,7 @@ export const FlowEditPage = () => {
           <TopBarWithControls />
           <PanelGroup orientation='horizontal'>
             <ResizablePanel>
-              <Flow key={flowIdCanonical}>
+              <Flow key={Ulid.construct(flowId).toCanonical()}>
                 <ActionBar />
 
                 {sidebar && (
@@ -114,8 +113,8 @@ export const FlowEditPage = () => {
             {agentPanelOpen && (
               <>
                 <PanelResizeHandle direction='horizontal' />
-                <ResizablePanel defaultSize='30%' maxSize='60%' minSize='15%'>
-                  <AgentPanel key={flowIdCanonical} />
+                <ResizablePanel defaultSize='30%' minSize='15%' maxSize='60%'>
+                  <AgentPanel />
                 </ResizablePanel>
               </>
             )}
