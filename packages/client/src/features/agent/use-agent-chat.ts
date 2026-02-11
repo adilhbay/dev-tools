@@ -55,6 +55,94 @@ const generateId = () => crypto.randomUUID();
 const safeStringify = (value: unknown): string =>
   JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
 
+// ---------------------------------------------------------------------------
+// Streaming helpers
+// ---------------------------------------------------------------------------
+
+interface StreamedMessage {
+  content: string | null;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+}
+
+interface StreamMeta {
+  finishReason: string | null | undefined;
+  usage: unknown;
+}
+
+/**
+ * Consumes an OpenAI streaming response, accumulating content and tool calls.
+ * Calls `onContent` with the accumulated text after every content delta so the
+ * UI can render tokens in real-time.
+ */
+const consumeStream = async (
+  stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
+  onContent: (accumulated: string) => void,
+): Promise<{ message: StreamedMessage; meta: StreamMeta }> => {
+  let content = '';
+  let hasContent = false;
+  const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
+  let finishReason: string | null | undefined = null;
+  let usage: unknown = undefined;
+
+  for await (const chunk of stream) {
+    const choice = chunk.choices[0];
+    if (!choice) {
+      // Final chunk may carry only usage data
+      if (chunk.usage) usage = chunk.usage;
+      continue;
+    }
+
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+    if (chunk.usage) usage = chunk.usage;
+
+    const delta = choice.delta;
+    if (delta?.content) {
+      content += delta.content;
+      hasContent = true;
+      onContent(content);
+    }
+
+    if (delta?.tool_calls) {
+      for (const tc of delta.tool_calls) {
+        const existing = toolCallsMap.get(tc.index);
+        if (existing) {
+          if (tc.function?.name) existing.name += tc.function.name;
+          if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+        } else {
+          toolCallsMap.set(tc.index, {
+            id: tc.id ?? '',
+            name: tc.function?.name ?? '',
+            arguments: tc.function?.arguments ?? '',
+          });
+        }
+      }
+    }
+  }
+
+  const toolCalls =
+    toolCallsMap.size > 0
+      ? Array.from(toolCallsMap.entries())
+          .sort(([a], [b]) => a - b)
+          .map(([, tc]) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: { name: tc.name, arguments: tc.arguments },
+          }))
+      : undefined;
+
+  return {
+    message: {
+      content: hasContent ? content : null,
+      tool_calls: toolCalls,
+    },
+    meta: { finishReason, usage },
+  };
+};
+
 type NodeCollection = ReturnType<typeof useApiCollection<typeof NodeCollectionSchema>>;
 type EdgeCollection = ReturnType<typeof useApiCollection<typeof EdgeCollectionSchema>>;
 
@@ -267,6 +355,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
     messages: [],
     isLoading: false,
     error: null,
+    streamingContent: '',
   });
 
   const { transport } = routes.root.useRouteContext();
@@ -395,18 +484,26 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         logger.logApiRequest(MODEL, openAIMessages.length, true);
         let apiStart = performance.now();
 
-        let response = await openai.chat.completions.create(
+        const updateStreamingContent = (content: string) => {
+          setState((prev) => ({ ...prev, streamingContent: content }));
+        };
+
+        let stream = await openai.chat.completions.create(
           {
             model: MODEL,
             messages: openAIMessages,
             tools,
             tool_choice: 'auto',
+            stream: true,
           },
           { signal: abortController.signal },
         );
 
-        logger.logApiResponse(performance.now() - apiStart, response.choices[0]?.finish_reason, response.usage);
-        let assistantMessage = response.choices[0]?.message;
+        let { message: streamedMsg, meta } = await consumeStream(stream, updateStreamingContent);
+        setState((prev) => ({ ...prev, streamingContent: '' }));
+
+        logger.logApiResponse(performance.now() - apiStart, meta.finishReason, meta.usage);
+        let assistantMessage = streamedMsg;
 
         let validationRetries = 0;
         const MAX_VALIDATION_RETRIES = 2;
@@ -535,18 +632,22 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
             logger.logApiRequest(MODEL, openAIMessages.length, true);
             apiStart = performance.now();
 
-            response = await openai.chat.completions.create(
+            stream = await openai.chat.completions.create(
               {
                 model: MODEL,
                 messages: openAIMessages,
                 tools,
                 tool_choice: 'auto',
+                stream: true,
               },
               { signal: abortController.signal },
             );
 
-            logger.logApiResponse(performance.now() - apiStart, response.choices[0]?.finish_reason, response.usage);
-            assistantMessage = response.choices[0]?.message;
+            ({ message: streamedMsg, meta } = await consumeStream(stream, updateStreamingContent));
+            setState((prev) => ({ ...prev, streamingContent: '' }));
+
+            logger.logApiResponse(performance.now() - apiStart, meta.finishReason, meta.usage);
+            assistantMessage = streamedMsg;
           }
 
           // === Post-execution validation: check for orphan nodes ===
@@ -598,13 +699,16 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           logger.logApiRequest(MODEL, openAIMessages.length, true);
           apiStart = performance.now();
 
-          response = await openai.chat.completions.create(
-            { model: MODEL, messages: openAIMessages, tools, tool_choice: 'auto' },
+          stream = await openai.chat.completions.create(
+            { model: MODEL, messages: openAIMessages, tools, tool_choice: 'auto', stream: true },
             { signal: abortController.signal },
           );
 
-          logger.logApiResponse(performance.now() - apiStart, response.choices[0]?.finish_reason, response.usage);
-          assistantMessage = response.choices[0]?.message;
+          ({ message: streamedMsg, meta } = await consumeStream(stream, updateStreamingContent));
+          setState((prev) => ({ ...prev, streamingContent: '' }));
+
+          logger.logApiResponse(performance.now() - apiStart, meta.finishReason, meta.usage);
+          assistantMessage = streamedMsg;
         } while (true);
 
         const finalMessage: Message = {
@@ -626,7 +730,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         // Ignore abort errors
         if (error instanceof Error && error.name === 'AbortError') {
           logger.logSessionEnd(false, true);
-          setState((prev) => ({ ...prev, isLoading: false }));
+          setState((prev) => ({ ...prev, isLoading: false, streamingContent: '' }));
           return;
         }
         logger.logError(error, 'sendMessage');
@@ -636,6 +740,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
           ...prev,
           isLoading: false,
           error: errorMessage,
+          streamingContent: '',
         }));
       } finally {
         if (abortControllerRef.current === abortController) {
@@ -653,19 +758,21 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       messages: [],
       isLoading: false,
       error: null,
+      streamingContent: '',
     });
   }, []);
 
   const cancel = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
-    setState((prev) => ({ ...prev, isLoading: false }));
+    setState((prev) => ({ ...prev, isLoading: false, streamingContent: '' }));
   }, []);
 
   return {
     messages: state.messages,
     isLoading: state.isLoading,
     error: state.error,
+    streamingContent: state.streamingContent,
     sendMessage,
     clearMessages,
     cancel,
