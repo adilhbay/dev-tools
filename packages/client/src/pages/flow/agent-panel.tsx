@@ -70,12 +70,29 @@ export const AgentPanel = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const lastToolCallIdx = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i]!.role === 'assistant' && messages[i]!.toolCalls) return i;
+  const completedToolCallIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const message of messages) {
+      if (message.role === 'tool' && message.toolCallId) {
+        ids.add(message.toolCallId);
+      }
     }
-    return -1;
+    return ids;
   }, [messages]);
+
+  const activeToolMessageId = useMemo(() => {
+    if (!isLoading) return null;
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]!;
+      if (message.role !== 'assistant' || !message.toolCalls?.length) continue;
+
+      const hasPendingToolCalls = message.toolCalls.some((tc) => !completedToolCallIds.has(tc.id));
+      if (hasPendingToolCalls) return message.id;
+    }
+
+    return null;
+  }, [completedToolCallIds, isLoading, messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -151,8 +168,13 @@ export const AgentPanel = () => {
               </div>
             ) : (
               <div className={tw`space-y-2 py-2`}>
-                {messages.map((message, i) => (
-                  <TerminalMessage isActive={isLoading && i === lastToolCallIdx} key={message.id} message={message} />
+                {messages.map((message) => (
+                  <TerminalMessage
+                    completedToolCallIds={completedToolCallIds}
+                    isActive={message.id === activeToolMessageId}
+                    key={message.id}
+                    message={message}
+                  />
                 ))}
                 {isLoading && (streamingContent ? <StreamingMessage content={streamingContent} /> : <ThinkingBlock />)}
                 <div ref={messagesEndRef} />
@@ -506,7 +528,7 @@ const ToolCallItem = ({ isActive, toolCall: tc }: { isActive: boolean; toolCall:
           aria-hidden
           className={tw`pointer-events-none absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap`}
           style={{
-            animation: 'toolcall-shimmer 1.4s ease-in-out infinite',
+            animation: 'toolcall-shimmer 1.4s linear infinite',
             background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%)',
             backgroundClip: 'text',
             backgroundSize: '200% 100%',
@@ -522,7 +544,15 @@ const ToolCallItem = ({ isActive, toolCall: tc }: { isActive: boolean; toolCall:
   );
 };
 
-const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Message; }) => {
+const TerminalMessage = ({
+  completedToolCallIds,
+  isActive,
+  message,
+}: {
+  completedToolCallIds: Set<string>;
+  isActive: boolean;
+  message: Message;
+}) => {
   if (message.role === 'user') {
     return (
       <div className={tw`flex min-w-0 gap-2`}>
@@ -577,7 +607,7 @@ const TerminalMessage = ({ isActive, message }: { isActive: boolean; message: Me
         )}
         <div className={tw`space-y-0.5`}>
           {message.toolCalls.map((tc) => (
-            <ToolCallItem isActive={isActive} key={tc.id} toolCall={tc} />
+            <ToolCallItem isActive={isActive && !completedToolCallIds.has(tc.id)} key={tc.id} toolCall={tc} />
           ))}
         </div>
       </div>
