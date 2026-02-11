@@ -42,13 +42,14 @@ import {
   type ToolSchema,
 } from './types';
 
-const openai = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: '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',
-  dangerouslyAllowBrowser: true,
-});
-
 const MODEL = 'moonshotai/kimi-k2.5';
+
+const createOpenRouterClient = (apiKey: string) =>
+  new OpenAI({
+    apiKey,
+    baseURL: 'https://openrouter.ai/api/v1',
+    dangerouslyAllowBrowser: true,
+  });
 
 const generateId = () => crypto.randomUUID();
 
@@ -339,17 +340,20 @@ const clientToolSchemas: ToolSchema[] = [
 ];
 
 interface UseAgentChatOptions {
+  apiKey: string;
   flowId: Uint8Array;
   selectedNodeIds?: string[];
 }
 
-export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) => {
-  const [state, setState] = useState<AgentChatState>({
-    messages: [],
-    isLoading: false,
-    error: null,
-    streamingContent: '',
-  });
+const createInitialAgentChatState = (): AgentChatState => ({
+  error: null,
+  isLoading: false,
+  messages: [],
+  streamingContent: '',
+});
+
+export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOptions) => {
+  const [state, setState] = useState<AgentChatState>(createInitialAgentChatState);
 
   const { transport } = routes.root.useRouteContext();
   const flowContext = useFlowContext(flowId);
@@ -389,6 +393,8 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
       abortControllerRef.current?.abort();
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
+
+      const openai = createOpenRouterClient(apiKey);
 
       // Use ref to get latest flowContext at execution time
       const currentFlowContext = {
@@ -744,7 +750,7 @@ export const useAgentChat = ({ flowId, selectedNodeIds }: UseAgentChatOptions) =
         }
       }
     },
-    [flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, flowCollection],
+    [apiKey, flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, flowCollection],
   );
 
   const clearMessages = useCallback(() => {

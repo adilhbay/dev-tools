@@ -13,3 +13,4 @@ export type {
   VariableInfo,
 } from './types';
 export { useAgentChat } from './use-agent-chat';
+export { useOpenRouterKey } from './use-openrouter-key';
