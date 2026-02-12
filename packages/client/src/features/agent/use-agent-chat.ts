@@ -2,7 +2,7 @@
 import { eq } from '@tanstack/react-db';
 import { Ulid } from 'id128';
 import OpenAI from 'openai';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { FlowItemState, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import {
   EdgeCollectionSchema,
@@ -380,8 +380,76 @@ const createInitialAgentChatState = (): AgentChatState => ({
   streamingContent: '',
 });
 
+// ---------------------------------------------------------------------------
+// Module-level external store – survives React component remounts
+// ---------------------------------------------------------------------------
+
+interface ChatStoreEntry {
+  abortController: AbortController | null;
+  state: AgentChatState;
+}
+
+const chatStoreEntries = new Map<string, ChatStoreEntry>();
+const chatStoreListeners = new Map<string, Set<() => void>>();
+
+const chatStore = {
+  getAbortController(key: string): AbortController | null {
+    return chatStoreEntries.get(key)?.abortController ?? null;
+  },
+
+  getState(key: string): AgentChatState {
+    let entry = chatStoreEntries.get(key);
+    if (!entry) {
+      entry = { abortController: null, state: createInitialAgentChatState() };
+      chatStoreEntries.set(key, entry);
+    }
+    return entry.state;
+  },
+
+  notify(key: string) {
+    chatStoreListeners.get(key)?.forEach((cb) => cb());
+  },
+
+  setAbortController(key: string, ac: AbortController | null) {
+    let entry = chatStoreEntries.get(key);
+    if (!entry) {
+      entry = { abortController: null, state: createInitialAgentChatState() };
+      chatStoreEntries.set(key, entry);
+    }
+    entry.abortController = ac;
+  },
+
+  setState(key: string, updater: ((prev: AgentChatState) => AgentChatState) | AgentChatState) {
+    let entry = chatStoreEntries.get(key);
+    if (!entry) {
+      entry = { abortController: null, state: createInitialAgentChatState() };
+      chatStoreEntries.set(key, entry);
+    }
+    entry.state = typeof updater === 'function' ? updater(entry.state) : updater;
+    chatStore.notify(key);
+  },
+
+  subscribe(key: string, callback: () => void): () => void {
+    let listeners = chatStoreListeners.get(key);
+    if (!listeners) {
+      listeners = new Set();
+      chatStoreListeners.set(key, listeners);
+    }
+    listeners.add(callback);
+    return () => {
+      listeners.delete(callback);
+      if (listeners.size === 0) chatStoreListeners.delete(key);
+    };
+  },
+};
+
 export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOptions) => {
-  const [state, setState] = useState<AgentChatState>(createInitialAgentChatState);
+  const flowIdKey = Ulid.construct(flowId).toCanonical();
+
+  const state = useSyncExternalStore(
+    useCallback((cb: () => void) => chatStore.subscribe(flowIdKey, cb), [flowIdKey]),
+    useCallback(() => chatStore.getState(flowIdKey), [flowIdKey]),
+  );
 
   const { transport } = routes.root.useRouteContext();
   const { workspaceId } = routes.dashboard.workspace.route.useLoaderData();
@@ -396,9 +464,6 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
 
   const messagesRef = useRef(state.messages);
   messagesRef.current = state.messages;
-
-  // Abort controller for cancelling requests
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   const nodeCollection = useApiCollection(NodeCollectionSchema);
   const edgeCollection = useApiCollection(EdgeCollectionSchema);
@@ -420,9 +485,9 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
   const sendMessage = useCallback(
     async (content: string) => {
       // Cancel any existing request
-      abortControllerRef.current?.abort();
+      chatStore.getAbortController(flowIdKey)?.abort();
       const abortController = new AbortController();
-      abortControllerRef.current = abortController;
+      chatStore.setAbortController(flowIdKey, abortController);
 
       const openai = createOpenRouterClient(apiKey);
 
@@ -491,7 +556,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
       const logger = new AgentLogger(currentFlowContext.flowId);
       logger.logSessionStart(currentFlowContext.flowId, content);
 
-      setState((prev) => ({
+      chatStore.setState(flowIdKey, (prev) => ({
         ...prev,
         error: null,
         isLoading: true,
@@ -519,7 +584,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
         let apiStart = performance.now();
 
         const updateStreamingContent = (content: string) => {
-          setState((prev) => ({ ...prev, streamingContent: content }));
+          chatStore.setState(flowIdKey, (prev) => ({ ...prev, streamingContent: content }));
         };
 
         let stream = await openai.chat.completions.create(
@@ -534,7 +599,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
         );
 
         let { message: streamedMsg, meta } = await consumeStream(stream, updateStreamingContent);
-        setState((prev) => ({ ...prev, streamingContent: '' }));
+        chatStore.setState(flowIdKey, (prev) => ({ ...prev, streamingContent: '' }));
 
         logger.logApiResponse(performance.now() - apiStart, meta.finishReason, meta.usage);
         let assistantMessage = streamedMsg;
@@ -559,7 +624,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
               toolCalls,
             };
 
-            setState((prev) => ({
+            chatStore.setState(flowIdKey, (prev) => ({
               ...prev,
               messages: [...prev.messages, toolMessage],
             }));
@@ -620,7 +685,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
               toolCallId: tr.toolCallId,
             }));
 
-            setState((prev) => ({
+            chatStore.setState(flowIdKey, (prev) => ({
               ...prev,
               messages: [...prev.messages, ...toolResultMessages],
             }));
@@ -678,7 +743,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
             );
 
             ({ message: streamedMsg, meta } = await consumeStream(stream, updateStreamingContent));
-            setState((prev) => ({ ...prev, streamingContent: '' }));
+            chatStore.setState(flowIdKey, (prev) => ({ ...prev, streamingContent: '' }));
 
             logger.logApiResponse(performance.now() - apiStart, meta.finishReason, meta.usage);
             assistantMessage = streamedMsg;
@@ -739,7 +804,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
           );
 
           ({ message: streamedMsg, meta } = await consumeStream(stream, updateStreamingContent));
-          setState((prev) => ({ ...prev, streamingContent: '' }));
+          chatStore.setState(flowIdKey, (prev) => ({ ...prev, streamingContent: '' }));
 
           logger.logApiResponse(performance.now() - apiStart, meta.finishReason, meta.usage);
           assistantMessage = streamedMsg;
@@ -755,7 +820,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
         logger.logAssistantMessage(finalMessage.content);
         logger.logSessionEnd(true, false);
 
-        setState((prev) => ({
+        chatStore.setState(flowIdKey, (prev) => ({
           ...prev,
           isLoading: false,
           messages: [...prev.messages, finalMessage],
@@ -764,21 +829,21 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
         // Ignore abort errors
         if (error instanceof Error && error.name === 'AbortError') {
           logger.logSessionEnd(false, true);
-          setState((prev) => ({ ...prev, isLoading: false, streamingContent: '' }));
+          chatStore.setState(flowIdKey, (prev) => ({ ...prev, isLoading: false, streamingContent: '' }));
           return;
         }
         logger.logError(error, 'sendMessage');
         logger.logSessionEnd(false, false);
         const errorMessage = error instanceof Error ? error.message : 'An error occurred';
-        setState((prev) => ({
+        chatStore.setState(flowIdKey, (prev) => ({
           ...prev,
           error: errorMessage,
           isLoading: false,
           streamingContent: '',
         }));
       } finally {
-        if (abortControllerRef.current === abortController) {
-          abortControllerRef.current = null;
+        if (chatStore.getAbortController(flowIdKey) === abortController) {
+          chatStore.setAbortController(flowIdKey, null);
         }
       }
     },
@@ -786,21 +851,21 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
   );
 
   const clearMessages = useCallback(() => {
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    setState({
+    chatStore.getAbortController(flowIdKey)?.abort();
+    chatStore.setAbortController(flowIdKey, null);
+    chatStore.setState(flowIdKey, {
       messages: [],
       isLoading: false,
       error: null,
       streamingContent: '',
     });
-  }, []);
+  }, [flowIdKey]);
 
   const cancel = useCallback(() => {
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    setState((prev) => ({ ...prev, isLoading: false, streamingContent: '' }));
-  }, []);
+    chatStore.getAbortController(flowIdKey)?.abort();
+    chatStore.setAbortController(flowIdKey, null);
+    chatStore.setState(flowIdKey, (prev) => ({ ...prev, isLoading: false, streamingContent: '' }));
+  }, [flowIdKey]);
 
   return {
     cancel,
