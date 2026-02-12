@@ -2,10 +2,11 @@
 import type { Transport } from '@connectrpc/connect';
 import { eq } from '@tanstack/react-db';
 import { Ulid } from 'id128';
+import { FileKind } from '@the-dev-tools/spec/buf/api/file_system/v1/file_system_pb';
 import { FlowItemState, FlowService, HandleKind, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import { HttpBodyKind, HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import { request } from '~/shared/api';
-import { queryCollection } from '~/shared/lib';
+import { getNextOrder, queryCollection } from '~/shared/lib';
 import type { FlowContextData, ToolCall, ToolResult } from './types';
 
 type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection>['utils'];
@@ -59,6 +60,7 @@ interface Collections {
   conditionCollection: { utils: CollectionUtils };
   edgeCollection: { utils: CollectionUtils };
   executionCollection: CollectionData;
+  fileCollection: CollectionData;
   forCollection: { utils: CollectionUtils };
   forEachCollection: { utils: CollectionUtils };
   httpAssertCollection: { utils: CollectionUtils };
@@ -77,6 +79,7 @@ interface ToolExecutorContext {
   flowContext: FlowContextData;
   transport: Transport;
   waitForFlowCompletion: () => Promise<void>;
+  workspaceId: Uint8Array;
 }
 
 const parseUlid = (id: string): Uint8Array => Ulid.fromCanonical(id).bytes;
@@ -154,11 +157,12 @@ const executeToolInternal = async (
   flowId: Uint8Array,
   context: ToolExecutorContext,
 ): Promise<unknown> => {
-  const { collections, flowContext, transport } = context;
+  const { collections, flowContext, transport, workspaceId } = context;
   const {
     conditionCollection,
     edgeCollection,
     executionCollection,
+    fileCollection,
     forCollection,
     forEachCollection,
     httpAssertCollection,
@@ -467,6 +471,14 @@ const executeToolInternal = async (
             name: nodeName,
             url,
           }),
+          getNextOrder(fileCollection).then((order) =>
+            fileCollection.utils.insert({
+              fileId: httpId,
+              kind: FileKind.HTTP,
+              order,
+              workspaceId,
+            }),
+          ),
         );
 
         // If a body is provided and the method supports it, insert the raw body

@@ -16,6 +16,7 @@ import {
   NodeHttpCollectionSchema,
   NodeJsCollectionSchema,
 } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
+import { FileCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/file_system';
 import {
   HttpAssertCollectionSchema,
   HttpBodyRawCollectionSchema,
@@ -383,6 +384,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
   const [state, setState] = useState<AgentChatState>(createInitialAgentChatState);
 
   const { transport } = routes.root.useRouteContext();
+  const { workspaceId } = routes.dashboard.workspace.route.useLoaderData();
   const flowContext = useFlowContext(flowId);
 
   // Use refs to always access latest values in callbacks
@@ -412,6 +414,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
   const httpBodyRawCollection = useApiCollection(HttpBodyRawCollectionSchema);
   const httpAssertCollection = useApiCollection(HttpAssertCollectionSchema);
   const executionCollection = useApiCollection(NodeExecutionCollectionSchema);
+  const fileCollection = useApiCollection(FileCollectionSchema);
   const flowCollection = useApiCollection(FlowCollectionSchema);
 
   const sendMessage = useCallback(
@@ -434,6 +437,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
         conditionCollection,
         edgeCollection,
         executionCollection,
+        fileCollection,
         forCollection,
         forEachCollection,
         httpAssertCollection,
@@ -474,6 +478,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
         flowContext: currentFlowContext,
         transport,
         waitForFlowCompletion,
+        workspaceId,
       };
 
       const userMessage: Message = {
@@ -777,7 +782,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
         }
       }
     },
-    [apiKey, flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, flowCollection],
+    [apiKey, flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, fileCollection, flowCollection, workspaceId],
   );
 
   const clearMessages = useCallback(() => {
