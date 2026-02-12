@@ -125,6 +125,7 @@ const MUTATION_TOOLS = new Set([
   'createJsNode',
   'deleteNode',
   'disconnectNodes',
+  'updateNode',
 ]);
 
 export const executeToolCall = async (
@@ -938,6 +939,227 @@ const executeToolInternal = async (
       }
 
       return result;
+    }
+
+    case 'updateNode': {
+      const nodeIdStr = args.nodeId as string;
+      const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
+      if (!node) throw new Error(`Node not found: ${nodeIdStr}`);
+
+      const nodeIdBytes = parseUlid(nodeIdStr);
+      const updatedFields: string[] = [];
+
+      // --- Base fields (any node type) ---
+      if (args.name !== undefined) {
+        nodeCollection.utils.update({
+          name: normalizeNodeName(args.name as string),
+          nodeId: nodeIdBytes,
+        });
+        updatedFields.push('name');
+      }
+
+      // --- Type-specific fields ---
+      switch (node.kind) {
+        case 'Condition': {
+          if (args.condition !== undefined) {
+            conditionCollection.utils.update({
+              condition: normalizeConditionSyntax(args.condition as string),
+              nodeId: nodeIdBytes,
+            });
+            updatedFields.push('condition');
+          }
+          break;
+        }
+        case 'For': {
+          const forUpdates: Record<string, unknown> = { nodeId: nodeIdBytes };
+          let hasForUpdates = false;
+
+          if (args.iterations !== undefined) {
+            const iterations = args.iterations as number;
+            if (!Number.isInteger(iterations) || iterations <= 0) {
+              throw new Error(`iterations must be a positive integer, got: ${iterations}`);
+            }
+            forUpdates.iterations = iterations;
+            hasForUpdates = true;
+            updatedFields.push('iterations');
+          }
+          if (args.condition !== undefined) {
+            forUpdates.condition = normalizeConditionSyntax(args.condition as string);
+            hasForUpdates = true;
+            updatedFields.push('condition');
+          }
+          if (args.errorHandling !== undefined) {
+            forUpdates.errorHandling = args.errorHandling === 'break' ? 1 : 0;
+            hasForUpdates = true;
+            updatedFields.push('errorHandling');
+          }
+          if (hasForUpdates) forCollection.utils.update(forUpdates);
+          break;
+        }
+        case 'ForEach': {
+          const feUpdates: Record<string, unknown> = { nodeId: nodeIdBytes };
+          let hasFeUpdates = false;
+
+          if (args.path !== undefined) {
+            feUpdates.path = normalizeConditionSyntax(args.path as string);
+            hasFeUpdates = true;
+            updatedFields.push('path');
+          }
+          if (args.condition !== undefined) {
+            feUpdates.condition = normalizeConditionSyntax(args.condition as string);
+            hasFeUpdates = true;
+            updatedFields.push('condition');
+          }
+          if (args.errorHandling !== undefined) {
+            feUpdates.errorHandling = args.errorHandling === 'break' ? 1 : 0;
+            hasFeUpdates = true;
+            updatedFields.push('errorHandling');
+          }
+          if (hasFeUpdates) forEachCollection.utils.update(feUpdates);
+          break;
+        }
+        case 'JavaScript': {
+          if (args.code !== undefined) {
+            jsCollection.utils.update({
+              code: `export default function(ctx) {\n  ${normalizeJsCodeReferences(args.code as string)}\n}`,
+              nodeId: nodeIdBytes,
+            });
+            updatedFields.push('code');
+          }
+          break;
+        }
+        case 'HTTP': {
+          if (!node.httpId) throw new Error(`HTTP node "${node.name}" has no associated HTTP request`);
+          const httpIdBytes = parseUlid(node.httpId);
+
+          // Update method/url
+          const httpUpdates: Record<string, unknown> = { httpId: httpIdBytes };
+          let hasHttpUpdates = false;
+
+          if (args.method !== undefined) {
+            const methodStr = (args.method as string).toUpperCase();
+            const method = HTTP_METHOD_MAP[methodStr];
+            if (method === undefined) {
+              throw new Error(`Invalid HTTP method: "${args.method}". Valid: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`);
+            }
+            httpUpdates.method = method;
+            hasHttpUpdates = true;
+            updatedFields.push('method');
+          }
+
+          if (args.url !== undefined) {
+            httpUpdates.url = args.url;
+            hasHttpUpdates = true;
+            updatedFields.push('url');
+          }
+
+          if (hasHttpUpdates) {
+            httpCollection.utils.update(httpUpdates);
+          }
+
+          // Replace headers if provided
+          if (args.headers !== undefined) {
+            const existingHeaders = await queryCollection((_) =>
+              _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
+            );
+            for (const h of existingHeaders) {
+              if (h.httpHeaderId) httpHeaderCollection.utils.delete({ httpHeaderId: h.httpHeaderId });
+            }
+            const newHeaders = args.headers as { description?: string; enabled?: boolean; key: string; value?: string; }[];
+            for (let i = 0; i < newHeaders.length; i++) {
+              const h = newHeaders[i]!;
+              await httpHeaderCollection.utils.insert({
+                description: h.description ?? '',
+                enabled: h.enabled ?? true,
+                httpHeaderId: Ulid.generate().bytes,
+                httpId: httpIdBytes,
+                key: h.key,
+                order: i,
+                value: h.value ?? '',
+              });
+            }
+            updatedFields.push('headers');
+          }
+
+          // Replace search params if provided
+          if (args.searchParams !== undefined) {
+            const existingParams = await queryCollection((_) =>
+              _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
+            );
+            for (const sp of existingParams) {
+              if (sp.httpSearchParamId) httpSearchParamCollection.utils.delete({ httpSearchParamId: sp.httpSearchParamId });
+            }
+            const newParams = args.searchParams as { description?: string; enabled?: boolean; key: string; value?: string; }[];
+            for (let i = 0; i < newParams.length; i++) {
+              const sp = newParams[i]!;
+              await httpSearchParamCollection.utils.insert({
+                description: sp.description ?? '',
+                enabled: sp.enabled ?? true,
+                httpId: httpIdBytes,
+                httpSearchParamId: Ulid.generate().bytes,
+                key: sp.key,
+                order: i,
+                value: sp.value ?? '',
+              });
+            }
+            updatedFields.push('searchParams');
+          }
+
+          // Set or clear body
+          if (args.body !== undefined) {
+            const body = args.body as null | string;
+            if (body === null) {
+              httpCollection.utils.update({ bodyKind: HttpBodyKind.UNSPECIFIED, httpId: httpIdBytes });
+              const existingBody = await queryCollection((_) =>
+                _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
+              );
+              if (existingBody.length > 0) {
+                httpBodyRawCollection.utils.update({ data: '', httpId: httpIdBytes });
+              }
+            } else {
+              httpCollection.utils.update({ bodyKind: HttpBodyKind.RAW, httpId: httpIdBytes });
+              const existingBody = await queryCollection((_) =>
+                _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
+              );
+              if (existingBody.length > 0) {
+                httpBodyRawCollection.utils.update({ data: body, httpId: httpIdBytes });
+              } else {
+                await httpBodyRawCollection.utils.insert({ data: body, httpId: httpIdBytes });
+              }
+            }
+            updatedFields.push('body');
+          }
+
+          // Replace assertions if provided
+          if (args.assertions !== undefined) {
+            const existingAsserts = await queryCollection((_) =>
+              _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
+            );
+            for (const a of existingAsserts) {
+              if (a.httpAssertId) httpAssertCollection.utils.delete({ httpAssertId: a.httpAssertId });
+            }
+            const newAsserts = args.assertions as { enabled?: boolean; value: string; }[];
+            for (let i = 0; i < newAsserts.length; i++) {
+              const a = newAsserts[i]!;
+              await httpAssertCollection.utils.insert({
+                enabled: a.enabled ?? true,
+                httpAssertId: Ulid.generate().bytes,
+                httpId: httpIdBytes,
+                order: i,
+                value: a.value,
+              });
+            }
+            updatedFields.push('assertions');
+          }
+          break;
+        }
+      }
+
+      if (updatedFields.length === 0) {
+        return { message: `No applicable fields provided for ${node.kind} node "${node.name}"`, success: false };
+      }
+
+      return { success: true, updatedFields };
     }
 
     case 'updateNodeCode': {

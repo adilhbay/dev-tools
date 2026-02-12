@@ -307,6 +307,96 @@ const clientToolSchemas: ToolSchema[] = [
   },
   {
     description:
+      'Update any node\'s configuration in a single call. Provide nodeId and only the fields to change — unspecified fields stay unchanged. ' +
+      'Base fields (name) work on any node. Type-specific fields: ' +
+      'Condition: condition. For: iterations, condition (break), errorHandling. ' +
+      'ForEach: path, condition (break), errorHandling. JS: code. ' +
+      'HTTP: method, url, headers, searchParams, body, assertions (arrays replace existing set).',
+    name: 'updateNode',
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        assertions: {
+          description: 'Replaces all existing assertions (HTTP only)',
+          items: {
+            properties: {
+              enabled: { type: 'boolean' },
+              value: { type: 'string' },
+            },
+            required: ['value'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        body: {
+          description: 'Raw body content (JSON string). Set to null to clear. (HTTP only)',
+          type: ['string', 'null'],
+        },
+        code: {
+          description: 'JavaScript code (JS nodes only)',
+          type: 'string',
+        },
+        condition: {
+          description: 'For Condition nodes: branching expression. For For/ForEach: break condition (expr-lang syntax).',
+          type: 'string',
+        },
+        errorHandling: {
+          description: 'Error handling strategy (For/ForEach only)',
+          enum: ['ignore', 'break'],
+          type: 'string',
+        },
+        headers: {
+          description: 'Replaces all existing headers (HTTP only)',
+          items: {
+            properties: {
+              enabled: { type: 'boolean' },
+              key: { type: 'string' },
+              value: { type: 'string' },
+            },
+            required: ['key'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        iterations: {
+          description: 'Number of loop iterations, must be positive (For nodes only)',
+          type: 'integer',
+        },
+        method: {
+          description: 'HTTP method (HTTP nodes only)',
+          enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
+          type: 'string',
+        },
+        name: {
+          description: 'New node name (any node type)',
+          type: 'string',
+        },
+        nodeId: { description: 'The node ID to update', type: 'string' },
+        path: {
+          description: 'Collection expression to iterate (ForEach nodes only, expr-lang syntax)',
+          type: 'string',
+        },
+        searchParams: {
+          description: 'Replaces all existing query parameters (HTTP only)',
+          items: {
+            properties: {
+              enabled: { type: 'boolean' },
+              key: { type: 'string' },
+              value: { type: 'string' },
+            },
+            required: ['key'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        url: { description: 'Request URL (HTTP nodes only)', type: 'string' },
+      },
+      required: ['nodeId'],
+      type: 'object',
+    },
+  },
+  {
+    description:
       'PREFERRED tool for ALL node connections. Connects nodes into a chain with optional parallel fan-out. ' +
       'Flat array: sequential chain. Nested array: parallel branches. ' +
       'Example: ["Start",["A","B"],"End"] creates Start→A, Start→B, A→End, B→End. ' +

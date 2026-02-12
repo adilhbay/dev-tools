@@ -531,7 +531,7 @@ IMPORTANT RULES:
 6. Always confirm what you did after executing tools.
 7. If a node has state="Failure", use inspectNode to get detailed error and config information.
 8. Use inspectNode with includeOutput: true to see the input/output data of a node's most recent execution.
-9. Use configureHttp to set method, url, headers, searchParams, body, and assertions on an HTTP node in a single call. Arrays replace the full existing set.
+9. Use updateNode to modify any node's configuration — condition expressions, loop iterations/paths, JS code, HTTP settings, or node names. Provide only the fields to change. For HTTP nodes, updateNode and configureHttp both work; arrays (headers, searchParams, assertions) replace the full existing set.
 10. Nodes with selected="true" are currently selected on canvas — prefer operating on those nodes unless the user specifies otherwise.
 11. Nodes with endpoint="true" are the last in their chain — new nodes connect there.
 12. Nodes with orphan="true" are mistakes — they must be connected to the flow via connectChain.
