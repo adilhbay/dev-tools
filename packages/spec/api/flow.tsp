@@ -128,7 +128,6 @@ model Position {
 }
 
 @AITools.mutationTool(
-  #{ operation: AITools.CrudOperation.Update, title: "Update Node Config", name: "UpdateNodeConfig", exclude: #["kind"], description: "Update general node properties like name or position." },
   #{ operation: AITools.CrudOperation.Delete, description: "Delete a node from the workflow. Also removes all connected edges." }
 )
 @TanStackDB.collection
@@ -189,8 +188,7 @@ model NodeCondition {
 }
 
 @AITools.mutationTool(
-  #{ operation: AITools.CrudOperation.Insert, title: "Create JavaScript Node", name: "CreateJsNode", parent: "Node", exclude: #["kind"], description: "Create a new JavaScript node in the workflow. JS nodes can transform data, make calculations, or perform custom logic." },
-  #{ operation: AITools.CrudOperation.Update, title: "Update Node Code", name: "UpdateNodeCode", description: "Update the JavaScript code of a JS node." }
+  #{ operation: AITools.CrudOperation.Insert, title: "Create JavaScript Node", name: "CreateJsNode", parent: "Node", exclude: #["kind"], description: "Create a new JavaScript node in the workflow. JS nodes can transform data, make calculations, or perform custom logic." }
 )
 @TanStackDB.collection
 model NodeJs {

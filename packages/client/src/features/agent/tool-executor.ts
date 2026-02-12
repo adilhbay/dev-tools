@@ -116,7 +116,6 @@ const FLOW_ITEM_STATE_NAMES: Record<number, string> = {
 };
 
 const MUTATION_TOOLS = new Set([
-  'configureHttp',
   'connectChain',
   'createConditionNode',
   'createForEachNode',
@@ -174,134 +173,6 @@ const executeToolInternal = async (
   } = collections;
 
   switch (name) {
-    case 'configureHttp': {
-      const nodeIdStr = args.nodeId as string;
-      const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
-      if (!node) throw new Error(`Node not found: ${nodeIdStr}`);
-      if (node.kind !== 'HTTP') throw new Error(`Node "${node.name}" is not an HTTP node (it's ${node.kind})`);
-      if (!node.httpId) throw new Error(`HTTP node "${node.name}" has no associated HTTP request`);
-
-      const httpIdBytes = parseUlid(node.httpId);
-
-      // Update method/url if provided
-      const httpUpdates: Record<string, unknown> = { httpId: httpIdBytes };
-      let hasHttpUpdates = false;
-
-      if (args.method !== undefined) {
-        const methodStr = (args.method as string).toUpperCase();
-        const method = HTTP_METHOD_MAP[methodStr];
-        if (method === undefined) {
-          throw new Error(`Invalid HTTP method: "${args.method}". Valid: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`);
-        }
-        httpUpdates.method = method;
-        hasHttpUpdates = true;
-      }
-
-      if (args.url !== undefined) {
-        httpUpdates.url = args.url;
-        hasHttpUpdates = true;
-      }
-
-      if (hasHttpUpdates) {
-        httpCollection.utils.update(httpUpdates);
-      }
-
-      // Replace headers if provided (delete all, then insert)
-      if (args.headers !== undefined) {
-        const existingHeaders = await queryCollection((_) =>
-          _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
-        );
-        for (const h of existingHeaders) {
-          if (h.httpHeaderId) httpHeaderCollection.utils.delete({ httpHeaderId: h.httpHeaderId });
-        }
-        const newHeaders = args.headers as { description?: string; enabled?: boolean; key: string; value?: string; }[];
-        for (let i = 0; i < newHeaders.length; i++) {
-          const h = newHeaders[i]!;
-          await httpHeaderCollection.utils.insert({
-            description: h.description ?? '',
-            enabled: h.enabled ?? true,
-            httpHeaderId: Ulid.generate().bytes,
-            httpId: httpIdBytes,
-            key: h.key,
-            order: i,
-            value: h.value ?? '',
-          });
-        }
-      }
-
-      // Replace search params if provided
-      if (args.searchParams !== undefined) {
-        const existingParams = await queryCollection((_) =>
-          _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
-        );
-        for (const sp of existingParams) {
-          if (sp.httpSearchParamId) httpSearchParamCollection.utils.delete({ httpSearchParamId: sp.httpSearchParamId });
-        }
-        const newParams = args.searchParams as { description?: string; enabled?: boolean; key: string; value?: string; }[];
-        for (let i = 0; i < newParams.length; i++) {
-          const sp = newParams[i]!;
-          await httpSearchParamCollection.utils.insert({
-            description: sp.description ?? '',
-            enabled: sp.enabled ?? true,
-            httpId: httpIdBytes,
-            httpSearchParamId: Ulid.generate().bytes,
-            key: sp.key,
-            order: i,
-            value: sp.value ?? '',
-          });
-        }
-      }
-
-      // Set or clear body
-      if (args.body !== undefined) {
-        const body = args.body as null | string;
-        if (body === null) {
-          // Clear body
-          httpCollection.utils.update({ bodyKind: HttpBodyKind.UNSPECIFIED, httpId: httpIdBytes });
-          const existingBody = await queryCollection((_) =>
-            _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
-          );
-          if (existingBody.length > 0) {
-            httpBodyRawCollection.utils.update({ data: '', httpId: httpIdBytes });
-          }
-        } else {
-          // Set body
-          httpCollection.utils.update({ bodyKind: HttpBodyKind.RAW, httpId: httpIdBytes });
-          const existingBody = await queryCollection((_) =>
-            _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
-          );
-          if (existingBody.length > 0) {
-            httpBodyRawCollection.utils.update({ data: body, httpId: httpIdBytes });
-          } else {
-            await httpBodyRawCollection.utils.insert({ data: body, httpId: httpIdBytes });
-          }
-        }
-      }
-
-      // Replace assertions if provided
-      if (args.assertions !== undefined) {
-        const existingAsserts = await queryCollection((_) =>
-          _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
-        );
-        for (const a of existingAsserts) {
-          if (a.httpAssertId) httpAssertCollection.utils.delete({ httpAssertId: a.httpAssertId });
-        }
-        const newAsserts = args.assertions as { enabled?: boolean; value: string; }[];
-        for (let i = 0; i < newAsserts.length; i++) {
-          const a = newAsserts[i]!;
-          await httpAssertCollection.utils.insert({
-            enabled: a.enabled ?? true,
-            httpAssertId: Ulid.generate().bytes,
-            httpId: httpIdBytes,
-            order: i,
-            value: a.value,
-          });
-        }
-      }
-
-      return { success: true };
-    }
-
     case 'connectChain': {
       const nodeIds = args.nodeIds as (string | string[])[];
       const handleOverride = args.sourceHandle as string | undefined;
@@ -1160,29 +1031,6 @@ const executeToolInternal = async (
       }
 
       return { success: true, updatedFields };
-    }
-
-    case 'updateNodeCode': {
-      const nodeId = parseUlid(args.nodeId as string);
-      const code = args.code as string;
-
-      jsCollection.utils.update({
-        code: `export default function(ctx) {\n  ${code}\n}`,
-        nodeId,
-      });
-
-      return { success: true };
-    }
-
-    case 'updateNodeConfig': {
-      const nodeId = parseUlid(args.nodeId as string);
-      const updates: Record<string, unknown> = { nodeId };
-
-      if (args.name) updates.name = args.name;
-      if (args.position) updates.position = args.position;
-
-      nodeCollection.utils.update(updates);
-      return { success: true };
     }
 
     case 'updateVariable': {

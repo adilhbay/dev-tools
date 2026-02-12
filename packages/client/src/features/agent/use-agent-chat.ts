@@ -244,69 +244,6 @@ const clientToolSchemas: ToolSchema[] = [
   },
   {
     description:
-      'Declaratively configure an HTTP node. Provide desired state — only include fields to change. ' +
-      'Arrays (headers, searchParams, assertions) replace the entire existing set when provided. ' +
-      'Set body to null to clear it.',
-    name: 'configureHttp',
-    parameters: {
-      additionalProperties: false,
-      properties: {
-        assertions: {
-          description: 'Replaces all existing assertions',
-          items: {
-            properties: {
-              enabled: { type: 'boolean' },
-              value: { type: 'string' },
-            },
-            required: ['value'],
-            type: 'object',
-          },
-          type: 'array',
-        },
-        body: {
-          description: 'Raw body content (JSON string). Set to null to clear.',
-          type: ['string', 'null'],
-        },
-        headers: {
-          description: 'Replaces all existing headers',
-          items: {
-            properties: {
-              enabled: { type: 'boolean' },
-              key: { type: 'string' },
-              value: { type: 'string' },
-            },
-            required: ['key'],
-            type: 'object',
-          },
-          type: 'array',
-        },
-        method: {
-          description: 'HTTP method',
-          enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
-          type: 'string',
-        },
-        nodeId: { description: 'The node ID (not httpId) of the HTTP node to configure', type: 'string' },
-        searchParams: {
-          description: 'Replaces all existing query parameters',
-          items: {
-            properties: {
-              enabled: { type: 'boolean' },
-              key: { type: 'string' },
-              value: { type: 'string' },
-            },
-            required: ['key'],
-            type: 'object',
-          },
-          type: 'array',
-        },
-        url: { description: 'Request URL', type: 'string' },
-      },
-      required: ['nodeId'],
-      type: 'object',
-    },
-  },
-  {
-    description:
       'Update any node\'s configuration in a single call. Provide nodeId and only the fields to change — unspecified fields stay unchanged. ' +
       'Base fields (name) work on any node. Type-specific fields: ' +
       'Condition: condition. For: iterations, condition (break), errorHandling. ' +
