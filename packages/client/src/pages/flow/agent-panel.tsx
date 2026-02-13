@@ -413,11 +413,10 @@ const ThinkingBlock = () => {
             className={tw`pointer-events-none absolute inset-0 text-sm font-medium`}
             style={{
               animation: 'thinking-shimmer 3s ease-in-out infinite',
-              background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%)',
+              background: 'linear-gradient(90deg, transparent 0%, var(--shimmer-highlight) 50%, transparent 100%)',
               backgroundClip: 'text',
               backgroundSize: '200% 100%',
               color: 'transparent',
-              mixBlendMode: 'screen',
               WebkitBackgroundClip: 'text',
             }}
           >
@@ -523,11 +522,10 @@ const ToolCallItem = ({ isActive, toolCall: tc }: { isActive: boolean; toolCall:
           className={tw`pointer-events-none absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap`}
           style={{
             animation: 'toolcall-shimmer 1.4s linear infinite',
-            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%)',
+            background: 'linear-gradient(90deg, transparent 0%, var(--shimmer-highlight) 50%, transparent 100%)',
             backgroundClip: 'text',
             backgroundSize: '200% 100%',
             color: 'transparent',
-            mixBlendMode: 'screen',
             WebkitBackgroundClip: 'text',
           }}
         >

@@ -27,6 +27,7 @@
   --brand-400: #8e4cfb;
   --brand-secondary: #33b4ff;
   --brand-tertiary-2: #32bd7e;
+  --shimmer-highlight: rgba(0, 0, 0, 0.7);
 }
 
 .dark {
@@ -51,6 +52,7 @@
   --brand-secondary: #33b4ff;
   --brand-tertiary-2: #32bd7e;
   --bg: #1b1b1b;
+  --shimmer-highlight: rgba(255, 255, 255, 0.85);
 }
 
 @keyframes thinking-shimmer {
