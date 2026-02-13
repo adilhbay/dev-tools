@@ -265,16 +265,15 @@ const executeToolInternal = async (
           // Determine handle kind for branching nodes
           const sourceNode = flowContext.nodes.find((n) => n.id === sourceIdStr);
           const isBranching =
-            sourceNode && ['Ai', 'Condition', 'For', 'ForEach'].includes(sourceNode.kind);
+            sourceNode && ['Condition', 'For', 'ForEach'].includes(sourceNode.kind);
+          const isAiSource = sourceNode?.kind === 'Ai';
 
-          // Validate handle is valid for the specific branching node type
+          // Validate handle is valid for the specific node type
           if (isBranching && handleOverride) {
             const validHandles =
-              sourceNode.kind === 'Ai'
-                ? ['then', 'ai_tools']
-                : sourceNode.kind === 'Condition'
-                  ? ['then', 'else']
-                  : ['then', 'loop'];
+              sourceNode.kind === 'Condition'
+                ? ['then', 'else']
+                : ['then', 'loop'];
             if (!validHandles.includes(handleOverride)) {
               errors.push(
                 `Edge ${idx}: Invalid sourceHandle "${handleOverride}" for ${sourceNode.kind} node "${sourceNode.name}". ` +
@@ -284,9 +283,22 @@ const executeToolInternal = async (
             }
           }
 
+          if (isAiSource && handleOverride) {
+            const validHandles = ['ai_tools'];
+            if (!validHandles.includes(handleOverride)) {
+              errors.push(
+                `Edge ${idx}: Invalid sourceHandle "${handleOverride}" for Ai node "${sourceNode.name}". ` +
+                  `Valid handles: ${validHandles.join(', ')}. Skipped.`,
+              );
+              continue;
+            }
+          }
+
           const edgeHandle = isBranching
             ? (HANDLE_KIND_MAP[handleOverride ?? 'then'] ?? HandleKind.THEN)
-            : undefined;
+            : isAiSource && handleOverride
+              ? HANDLE_KIND_MAP[handleOverride]
+              : undefined;
 
           await edgeCollection.utils.insert({
             edgeId,
