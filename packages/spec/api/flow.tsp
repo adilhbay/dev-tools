@@ -196,11 +196,14 @@ model NodeJs {
   code: string;
 }
 
+@AITools.mutationTool(
+  #{ operation: AITools.CrudOperation.Insert, title: "Create AI Node", name: "CreateAiNode", parent: "Node", exclude: #["kind"], description: "Create a new AI agent node that uses an LLM to process a prompt. The AI node orchestrates tool calling and can iterate multiple times." }
+)
 @TanStackDB.collection
 model NodeAi {
   @primaryKey nodeId: Id;
-  prompt: string;
-  maxIterations: int32;
+  @doc("The prompt or system instructions for the AI agent") prompt: string;
+  @doc("Maximum number of agentic iterations (LLM calls) before stopping, must be > 0") maxIterations: int32;
 }
 
 @TanStackDB.collection

@@ -16,6 +16,7 @@ import { queryCollection } from '~/shared/lib';
 import type { EdgeInfo, FlowContextData, NodeExecutionInfo, NodeInfo, VariableInfo } from './types';
 
 const NODE_KIND_NAMES: Record<number, string> = {
+  [NodeKind.AI]: 'Ai',
   [NodeKind.CONDITION]: 'Condition',
   [NodeKind.FOR]: 'For',
   [NodeKind.FOR_EACH]: 'ForEach',

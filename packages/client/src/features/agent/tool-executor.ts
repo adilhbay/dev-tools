@@ -57,6 +57,7 @@ function normalizeNodeName(name: string): string {
 }
 
 interface Collections {
+  aiCollection: { utils: CollectionUtils };
   conditionCollection: { utils: CollectionUtils };
   edgeCollection: { utils: CollectionUtils };
   executionCollection: CollectionData;
@@ -85,6 +86,7 @@ interface ToolExecutorContext {
 const parseUlid = (id: string): Uint8Array => Ulid.fromCanonical(id).bytes;
 
 const HANDLE_KIND_MAP: Record<string, HandleKind> = {
+  ai_tools: HandleKind.AI_TOOLS,
   else: HandleKind.ELSE,
   loop: HandleKind.LOOP,
   then: HandleKind.THEN,
@@ -101,6 +103,7 @@ const HTTP_METHOD_MAP: Record<string, HttpMethod> = {
 };
 
 const NODE_KIND_NAMES: Record<number, string> = {
+  [NodeKind.AI]: 'Ai',
   [NodeKind.CONDITION]: 'Condition',
   [NodeKind.FOR]: 'For',
   [NodeKind.FOR_EACH]: 'ForEach',
@@ -120,6 +123,7 @@ const FLOW_ITEM_STATE_NAMES: Record<number, string> = {
 
 const MUTATION_TOOLS = new Set([
   'connectChain',
+  'createAiNode',
   'createConditionNode',
   'createForEachNode',
   'createForNode',
@@ -159,6 +163,7 @@ const executeToolInternal = async (
 ): Promise<unknown> => {
   const { collections, flowContext, transport, workspaceId } = context;
   const {
+    aiCollection,
     conditionCollection,
     edgeCollection,
     executionCollection,
@@ -180,9 +185,9 @@ const executeToolInternal = async (
     case 'connectChain': {
       const nodeIds = args.nodeIds as (string | string[])[];
       const handleOverride = args.sourceHandle as string | undefined;
-      if (handleOverride && !['else', 'loop', 'then'].includes(handleOverride)) {
+      if (handleOverride && !['ai_tools', 'else', 'loop', 'then'].includes(handleOverride)) {
         throw new Error(
-          `Invalid sourceHandle "${handleOverride}". Valid values: "then", "else", "loop".`,
+          `Invalid sourceHandle "${handleOverride}". Valid values: "then", "else", "loop", "ai_tools".`,
         );
       }
       if (!nodeIds || nodeIds.length < 2) {
@@ -259,12 +264,16 @@ const executeToolInternal = async (
           // Determine handle kind for branching nodes
           const sourceNode = flowContext.nodes.find((n) => n.id === sourceIdStr);
           const isBranching =
-            sourceNode && ['Condition', 'For', 'ForEach'].includes(sourceNode.kind);
+            sourceNode && ['Ai', 'Condition', 'For', 'ForEach'].includes(sourceNode.kind);
 
           // Validate handle is valid for the specific branching node type
           if (isBranching && handleOverride) {
             const validHandles =
-              sourceNode.kind === 'Condition' ? ['then', 'else'] : ['then', 'loop'];
+              sourceNode.kind === 'Ai'
+                ? ['then', 'ai_tools']
+                : sourceNode.kind === 'Condition'
+                  ? ['then', 'else']
+                  : ['then', 'loop'];
             if (!validHandles.includes(handleOverride)) {
               errors.push(
                 `Edge ${idx}: Invalid sourceHandle "${handleOverride}" for ${sourceNode.kind} node "${sourceNode.name}". ` +
@@ -299,6 +308,38 @@ const executeToolInternal = async (
         edgesCreated: edgeIds.length,
         ...(errors.length > 0 ? { errors } : {}),
       };
+    }
+
+    case 'createAiNode': {
+      const nodeId = Ulid.generate().bytes;
+      const position = (args.position as { x: number; y: number }) ?? { x: 0, y: 0 };
+      const nodeName = normalizeNodeName(args.name as string);
+      const prompt = args.prompt as string;
+      const maxIterations = (args.maxIterations as number | undefined) ?? 5;
+
+      if (!Number.isInteger(maxIterations) || maxIterations <= 0) {
+        throw new Error(`maxIterations must be a positive integer, got: ${maxIterations}`);
+      }
+
+      // Call both inserts before awaiting to ensure optimistic updates happen
+      // synchronously before any sync responses can arrive from the server
+      const nodePromise = nodeCollection.utils.insert({
+        flowId,
+        kind: NodeKind.AI,
+        name: nodeName,
+        nodeId,
+        position,
+      });
+
+      const aiPromise = aiCollection.utils.insert({
+        maxIterations,
+        nodeId,
+        prompt,
+      });
+
+      await Promise.all([nodePromise, aiPromise]);
+
+      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
     }
 
     case 'createConditionNode': {
@@ -772,6 +813,14 @@ const executeToolInternal = async (
           }));
           break;
         }
+        case 'Ai': {
+          const [aiData] = await queryCollection((_) =>
+            _.from({ ai: aiCollection }).where((_) => eq(_.ai.nodeId, nodeIdBytes)).findOne(),
+          );
+          result.prompt = aiData?.prompt ?? '';
+          result.maxIterations = aiData?.maxIterations ?? 5;
+          break;
+        }
         case 'JavaScript': {
           const [jsData] = await queryCollection((_) =>
             _.from({ js: jsCollection }).where((_) => eq(_.js.nodeId, nodeIdBytes)).findOne(),
@@ -843,6 +892,27 @@ const executeToolInternal = async (
 
       // --- Type-specific fields ---
       switch (node.kind) {
+        case 'Ai': {
+          const aiUpdates: Record<string, unknown> = { nodeId: nodeIdBytes };
+          let hasAiUpdates = false;
+
+          if (args.prompt !== undefined) {
+            aiUpdates.prompt = args.prompt;
+            hasAiUpdates = true;
+            updatedFields.push('prompt');
+          }
+          if (args.maxIterations !== undefined) {
+            const maxIterations = args.maxIterations as number;
+            if (!Number.isInteger(maxIterations) || maxIterations <= 0) {
+              throw new Error(`maxIterations must be a positive integer, got: ${maxIterations}`);
+            }
+            aiUpdates.maxIterations = maxIterations;
+            hasAiUpdates = true;
+            updatedFields.push('maxIterations');
+          }
+          if (hasAiUpdates) aiCollection.utils.update(aiUpdates);
+          break;
+        }
         case 'Condition': {
           if (args.condition !== undefined) {
             conditionCollection.utils.update({
