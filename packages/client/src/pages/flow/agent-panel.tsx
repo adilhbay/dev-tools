@@ -188,7 +188,6 @@ export const AgentPanel = () => {
           <div className={tw`m-2 mt-0 rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2.5 py-1.5`}>
             {selectedNodeIds.length > 0 && <SelectedNodesBar selectedNodeIds={selectedNodeIds} />}
             <div className={tw`flex items-end gap-2`}>
-              <span className={tw`py-1 text-(--brand-tertiary-2)`}>&gt;</span>
               <textarea
                 className={tw`
                   max-h-[120px] min-h-[48px] flex-1 resize-none border-none bg-transparent text-sm font-medium
@@ -342,13 +341,11 @@ const ApiKeyPrompt = ({ onSubmit }: { onSubmit: (key: string) => void }) => {
         />
         <button
           className={tw`
-            rounded-[4px] bg-(--c-383838) px-3 py-1.5 text-sm font-medium text-white transition-colors
+            rounded-[4px] bg-(--text-primary) px-3 py-1.5 text-sm font-medium text-(--text-inverse) transition-colors
 
-            hover:bg-(--c-575757)
+            hover:bg-(--text-secondary)
 
-            disabled:bg-(--c-808080)
-
-            dark:bg-(--c-E0E0E0) dark:text-black dark:hover:bg-(--c-CFCFCF)
+            disabled:bg-(--text-muted)
           `}
           disabled={!value.trim()}
           onClick={() => void handleSubmit()}
@@ -415,11 +412,10 @@ const ThinkingBlock = () => {
             className={tw`pointer-events-none absolute inset-0 text-sm font-medium`}
             style={{
               animation: 'thinking-shimmer 3s ease-in-out infinite',
-              background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%)',
+              background: 'linear-gradient(90deg, transparent 0%, var(--shimmer-highlight) 50%, transparent 100%)',
               backgroundClip: 'text',
               backgroundSize: '200% 100%',
               color: 'transparent',
-              mixBlendMode: 'screen',
               WebkitBackgroundClip: 'text',
             }}
           >
@@ -476,13 +472,11 @@ const StreamingMessage = ({ content }: { content: string }) => (
 const SendButton = ({ disabled, onClick }: { disabled: boolean; onClick: () => void; }) => (
   <button
     className={tw`
-      flex size-[22px] items-center justify-center rounded-full bg-(--c-383838) text-white transition-colors
+      flex size-[22px] items-center justify-center rounded-full bg-(--text-primary) text-(--text-inverse) transition-colors
 
-      hover:bg-(--c-575757)
+      hover:bg-(--text-secondary)
 
-      disabled:bg-(--c-808080)
-
-      dark:bg-(--c-E0E0E0) dark:text-black dark:hover:bg-(--c-CFCFCF)
+      disabled:bg-(--text-muted)
     `}
     disabled={disabled}
     onClick={onClick}
@@ -495,17 +489,15 @@ const SendButton = ({ disabled, onClick }: { disabled: boolean; onClick: () => v
 const AbortButton = ({ onClick }: { onClick: () => void }) => (
   <button
     className={tw`
-      flex size-5 items-center justify-center rounded-full bg-(--c-383838) transition-colors
+      flex size-5 items-center justify-center rounded-full bg-(--text-primary) transition-colors
 
-      hover:bg-(--c-575757)
-
-      dark:bg-(--c-E0E0E0) dark:hover:bg-(--c-CFCFCF)
+      hover:bg-(--text-secondary)
     `}
     onClick={onClick}
     type='button'
   >
     <svg fill='none' height='8' viewBox='0 0 8 8' width='8'>
-      <rect className={tw`dark:fill-black`} fill='white' height='8' rx='1' width='8' />
+      <rect className={tw`fill-(--text-inverse)`} height='8' rx='1' width='8' />
     </svg>
   </button>
 );
@@ -529,11 +521,10 @@ const ToolCallItem = ({ isActive, toolCall: tc }: { isActive: boolean; toolCall:
           className={tw`pointer-events-none absolute inset-0 overflow-hidden text-ellipsis whitespace-nowrap`}
           style={{
             animation: 'toolcall-shimmer 1.4s linear infinite',
-            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.85) 50%, transparent 100%)',
+            background: 'linear-gradient(90deg, transparent 0%, var(--shimmer-highlight) 50%, transparent 100%)',
             backgroundClip: 'text',
             backgroundSize: '200% 100%',
             color: 'transparent',
-            mixBlendMode: 'screen',
             WebkitBackgroundClip: 'text',
           }}
         >

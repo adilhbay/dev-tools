@@ -24,6 +24,7 @@ import {
 import { Button, ButtonAsRouteLink } from '@the-dev-tools/ui/button';
 import { Checkbox } from '@the-dev-tools/ui/checkbox';
 import { PlayCircleIcon } from '@the-dev-tools/ui/icons';
+import { useTheme } from '@the-dev-tools/ui/theme';
 import { Menu, MenuItem, useContextMenuState } from '@the-dev-tools/ui/menu';
 import { Modal, useProgrammaticModal } from '@the-dev-tools/ui/modal';
 import { DropIndicatorHorizontal } from '@the-dev-tools/ui/reorder';
@@ -121,6 +122,8 @@ export const FlowEditPage = () => {
 };
 
 export const Flow = ({ children }: PropsWithChildren) => {
+  const { theme } = useTheme();
+
   const fileCollection = useApiCollection(FileCollectionSchema);
   const flowCollection = useApiCollection(FlowCollectionSchema);
   const edgeCollection = useApiCollection(EdgeCollectionSchema);
@@ -252,7 +255,7 @@ export const Flow = ({ children }: PropsWithChildren) => {
 
       <XF.ReactFlow
         {...(dropProps as object)}
-        colorMode='light'
+        colorMode={theme}
         connectionLineComponent={ConnectionLine}
         deleteKeyCode={['Backspace', 'Delete']}
         edges={edges}
@@ -445,7 +448,7 @@ const ActionBar = () => {
       </Button>
 
       <Button className={tw`px-1.5 py-1`} onPress={() => void setAgentPanelOpen?.((prev) => !prev)} variant='ghost dark'>
-        <FiCpu className={tw`size-5 text-slate-300`} />
+        <FiCpu className={tw`size-5 text-on-inverse-low`} />
         AI Agent
       </Button>
 
