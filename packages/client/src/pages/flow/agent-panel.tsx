@@ -188,7 +188,6 @@ export const AgentPanel = () => {
           <div className={tw`m-2 mt-0 rounded-[4px] border border-(--border-1) bg-(--surface-4) px-2.5 py-1.5`}>
             {selectedNodeIds.length > 0 && <SelectedNodesBar selectedNodeIds={selectedNodeIds} />}
             <div className={tw`flex items-end gap-2`}>
-              <span className={tw`py-1 text-(--brand-tertiary-2)`}>&gt;</span>
               <textarea
                 className={tw`
                   max-h-[120px] min-h-[48px] flex-1 resize-none border-none bg-transparent text-sm font-medium
