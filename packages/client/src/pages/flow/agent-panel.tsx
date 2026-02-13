@@ -342,13 +342,11 @@ const ApiKeyPrompt = ({ onSubmit }: { onSubmit: (key: string) => void }) => {
         />
         <button
           className={tw`
-            rounded-[4px] bg-(--c-383838) px-3 py-1.5 text-sm font-medium text-white transition-colors
+            rounded-[4px] bg-(--text-primary) px-3 py-1.5 text-sm font-medium text-(--text-inverse) transition-colors
 
-            hover:bg-(--c-575757)
+            hover:bg-(--text-secondary)
 
-            disabled:bg-(--c-808080)
-
-            dark:bg-(--c-E0E0E0) dark:text-black dark:hover:bg-(--c-CFCFCF)
+            disabled:bg-(--text-muted)
           `}
           disabled={!value.trim()}
           onClick={() => void handleSubmit()}
@@ -476,13 +474,11 @@ const StreamingMessage = ({ content }: { content: string }) => (
 const SendButton = ({ disabled, onClick }: { disabled: boolean; onClick: () => void; }) => (
   <button
     className={tw`
-      flex size-[22px] items-center justify-center rounded-full bg-(--c-383838) text-white transition-colors
+      flex size-[22px] items-center justify-center rounded-full bg-(--text-primary) text-(--text-inverse) transition-colors
 
-      hover:bg-(--c-575757)
+      hover:bg-(--text-secondary)
 
-      disabled:bg-(--c-808080)
-
-      dark:bg-(--c-E0E0E0) dark:text-black dark:hover:bg-(--c-CFCFCF)
+      disabled:bg-(--text-muted)
     `}
     disabled={disabled}
     onClick={onClick}
@@ -495,17 +491,15 @@ const SendButton = ({ disabled, onClick }: { disabled: boolean; onClick: () => v
 const AbortButton = ({ onClick }: { onClick: () => void }) => (
   <button
     className={tw`
-      flex size-5 items-center justify-center rounded-full bg-(--c-383838) transition-colors
+      flex size-5 items-center justify-center rounded-full bg-(--text-primary) transition-colors
 
-      hover:bg-(--c-575757)
-
-      dark:bg-(--c-E0E0E0) dark:hover:bg-(--c-CFCFCF)
+      hover:bg-(--text-secondary)
     `}
     onClick={onClick}
     type='button'
   >
     <svg fill='none' height='8' viewBox='0 0 8 8' width='8'>
-      <rect className={tw`dark:fill-black`} fill='white' height='8' rx='1' width='8' />
+      <rect className={tw`fill-(--text-inverse)`} height='8' rx='1' width='8' />
     </svg>
   </button>
 );
