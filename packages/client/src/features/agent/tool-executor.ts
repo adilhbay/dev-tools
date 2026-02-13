@@ -78,6 +78,7 @@ interface Collections {
 interface ToolExecutorContext {
   collections: Collections;
   flowContext: FlowContextData;
+  sessionCreatedNodeIds: Set<string>;
   transport: Transport;
   waitForFlowCompletion: () => Promise<void>;
   workspaceId: Uint8Array;
@@ -339,7 +340,9 @@ const executeToolInternal = async (
 
       await Promise.all([nodePromise, aiPromise]);
 
-      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+      const canonicalId = Ulid.construct(nodeId).toCanonical();
+      context.sessionCreatedNodeIds.add(canonicalId);
+      return { name: nodeName, nodeId: canonicalId };
     }
 
     case 'createConditionNode': {
@@ -365,7 +368,11 @@ const executeToolInternal = async (
 
       await Promise.all([nodePromise, conditionPromise]);
 
-      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+      {
+        const canonicalId = Ulid.construct(nodeId).toCanonical();
+        context.sessionCreatedNodeIds.add(canonicalId);
+        return { name: nodeName, nodeId: canonicalId };
+      }
     }
 
     case 'createForEachNode': {
@@ -415,7 +422,11 @@ const executeToolInternal = async (
 
       await Promise.all([nodePromise, forEachPromise]);
 
-      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+      {
+        const canonicalId = Ulid.construct(nodeId).toCanonical();
+        context.sessionCreatedNodeIds.add(canonicalId);
+        return { name: nodeName, nodeId: canonicalId };
+      }
     }
 
     case 'createForNode': {
@@ -463,7 +474,11 @@ const executeToolInternal = async (
 
       await Promise.all([nodePromise, forPromise]);
 
-      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+      {
+        const canonicalId = Ulid.construct(nodeId).toCanonical();
+        context.sessionCreatedNodeIds.add(canonicalId);
+        return { name: nodeName, nodeId: canonicalId };
+      }
     }
 
     case 'createHttpNode': {
@@ -557,7 +572,11 @@ const executeToolInternal = async (
 
       await Promise.all(insertPromises);
 
-      return { httpId: httpIdStr, name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+      {
+        const canonicalId = Ulid.construct(nodeId).toCanonical();
+        context.sessionCreatedNodeIds.add(canonicalId);
+        return { httpId: httpIdStr, name: nodeName, nodeId: canonicalId };
+      }
     }
 
     case 'createJsNode': {
@@ -583,7 +602,11 @@ const executeToolInternal = async (
 
       await Promise.all([nodePromise, jsPromise]);
 
-      return { name: nodeName, nodeId: Ulid.construct(nodeId).toCanonical() };
+      {
+        const canonicalId = Ulid.construct(nodeId).toCanonical();
+        context.sessionCreatedNodeIds.add(canonicalId);
+        return { name: nodeName, nodeId: canonicalId };
+      }
     }
 
     case 'createVariable': {
@@ -610,6 +633,14 @@ const executeToolInternal = async (
 
     case 'deleteNode': {
       const nodeIdStr = args.nodeId as string;
+
+      if (context.sessionCreatedNodeIds.has(nodeIdStr)) {
+        return {
+          blocked: true,
+          message: 'Cannot delete a node you just created. If the node has an error, explain the issue to the user and suggest what they can do to fix it (e.g., adding an AI Provider node). Do NOT delete and recreate with a different node type.',
+        };
+      }
+
       const nodeId = parseUlid(nodeIdStr);
 
       // Delete all edges connected to this node (both incoming and outgoing)

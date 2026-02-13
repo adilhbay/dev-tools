@@ -44,7 +44,7 @@ import {
   type ToolSchema,
 } from './types';
 
-const MODEL = 'moonshotai/kimi-k2.5';
+const MODEL = 'minimax/minimax-m2.5';
 
 const createOpenRouterClient = (apiKey: string) =>
   new OpenAI({
@@ -555,6 +555,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
       const toolContext: ToolExecutorContext = {
         collections,
         flowContext: currentFlowContext,
+        sessionCreatedNodeIds: new Set<string>(),
         transport,
         waitForFlowCompletion,
         workspaceId,

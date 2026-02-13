@@ -537,6 +537,8 @@ IMPORTANT RULES:
 11. Nodes with endpoint="true" are the last in their chain — new nodes connect there.
 12. Nodes with orphan="true" are mistakes — they must be connected to the flow via connectChain.
 13. Create ALL nodes first, then connect them all at once with connectChain. Do not alternate between creating and connecting.
-14. For multi-phase flows, use SEPARATE connectChain calls per phase with a shared fan-in node. Example: ["Start",["GET1","GET2"],"ProcessData"] then ["ProcessData",["POST1","POST2"],"End"]. NEVER use consecutive nested arrays — split them across calls.`;
+14. For multi-phase flows, use SEPARATE connectChain calls per phase with a shared fan-in node. Example: ["Start",["GET1","GET2"],"ProcessData"] then ["ProcessData",["POST1","POST2"],"End"]. NEVER use consecutive nested arrays — split them across calls.
+15. NEVER delete a node to work around an error. If a node fails or cannot be configured with available tools, explain the problem to the user and suggest what they need to do manually. Deleting user-requested nodes and replacing them with a different type is not allowed unless the user explicitly asks for it.
+16. AI nodes require a connected AI Provider node that supplies the LLM model and credentials. The agent cannot create or configure AI Provider nodes — this must be done by the user on the canvas. If an AI node fails with a provider-related error, tell the user they need to add and connect an AI Provider node to it with the appropriate credentials.`;
 };
 
