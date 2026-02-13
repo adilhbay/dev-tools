@@ -1,11 +1,7 @@
-import { Struct } from 'effect';
 import { RefAttributes } from 'react';
-import { mergeProps } from 'react-aria';
 import * as RAC from 'react-aria-components';
-import { FieldPath, FieldValues, useController, UseControllerProps } from 'react-hook-form';
 import { tv, VariantProps } from 'tailwind-variants';
 import { focusVisibleRingStyles } from './focus-ring';
-import { controllerPropKeys, ControllerPropKeys } from './react-hook-form';
 import { tw } from './tailwind-literal';
 import { composeStyleRenderProps } from './utils';
 
@@ -16,10 +12,10 @@ const checkboxStyles = tv({
     box: [
       focusVisibleRingStyles(),
       tw`
-        flex size-4 flex-none cursor-pointer items-center justify-center rounded-sm border border-slate-200 bg-white
-        p-0.5 text-white
+        flex size-4 flex-none cursor-pointer items-center justify-center rounded-sm border border-neutral
+        bg-neutral-lowest p-0.5 text-on-accent
 
-        group-selected/checkbox:border-violet-600 group-selected/checkbox:bg-violet-600
+        group-selected/checkbox:border-accent group-selected/checkbox:bg-accent
       `,
     ],
   },
@@ -67,38 +63,3 @@ const IndeterminateIcon = () => (
     <path d='M1 1h8.315' stroke='currentColor' strokeLinecap='round' strokeLinejoin='round' strokeWidth={1.5} />
   </svg>
 );
-
-// RHF wrapper
-
-export interface CheckboxRHFProps<
-  TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
->
-  extends Omit<CheckboxProps, ControllerPropKeys>, UseControllerProps<TFieldValues, TName> {}
-
-export const CheckboxRHF = <
-  TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
->(
-  props: CheckboxRHFProps<TFieldValues, TName>,
-) => {
-  const forwardedProps = Struct.omit(props, ...controllerPropKeys);
-  const controllerProps = Struct.pick(props, ...controllerPropKeys);
-
-  const {
-    field: { ref, ...field },
-    fieldState,
-  } = useController({ defaultValue: false as never, ...controllerProps });
-
-  const fieldProps: CheckboxProps = {
-    isDisabled: field.disabled ?? false,
-    isInvalid: fieldState.invalid,
-    isSelected: field.value,
-    name: field.name,
-    onBlur: field.onBlur,
-    onChange: field.onChange,
-    validationBehavior: 'aria',
-  };
-
-  return <Checkbox {...mergeProps(fieldProps, forwardedProps)} ref={ref} />;
-};

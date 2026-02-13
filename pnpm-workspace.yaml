@@ -63,9 +63,7 @@ catalog:
   '@tanstack/react-query-devtools': 5.91.2
   '@tanstack/react-router': 1.145.7
   '@tanstack/react-router-devtools': 1.145.7
-  '@tanstack/react-table': 8.21.3
   '@tanstack/router-plugin': 1.145.10
-  '@tanstack/table-core': 8.21.3
   '@tanstack/virtual-file-routes': 1.145.4
   '@tsconfig/strictest': 2.0.8
   '@types/eslint-plugin-jsx-a11y': 6.10.1
@@ -107,7 +105,6 @@ catalog:
   react-aria-components: 1.14.0
   react-dom: 19.2.3
   react-error-boundary: 6.0.2
-  react-hook-form: 7.70.0
   react-icons: 5.5.0
   react-markdown: 10.1.0
   remark-gfm: 4.0.1

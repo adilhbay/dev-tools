@@ -6,7 +6,7 @@
     ".": "./src/index.tsx",
     "./*": "./src/*.tsx",
     "./storybook-config/*": "./.storybook/*",
-    "./styles": "./src/styles.css"
+    "./styles": "./src/styles/index.css"
   },
   "dependencies": {
     "@bufbuild/protobuf": "catalog:",
@@ -14,13 +14,11 @@
     "@fontsource/dm-mono": "catalog:",
     "@react-aria/collections": "catalog:",
     "@tanstack/react-router": "catalog:",
-    "@tanstack/react-table": "catalog:",
     "effect": "catalog:",
     "react": "catalog:",
     "react-aria": "catalog:",
     "react-aria-components": "catalog:",
     "react-dom": "catalog:",
-    "react-hook-form": "catalog:",
     "react-icons": "catalog:",
     "react-resizable-panels": "catalog:",
     "tailwind-merge": "catalog:",

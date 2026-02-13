@@ -5,9 +5,7 @@ import { useTransport } from '@connectrpc/connect-query';
 import CodeMirror, { EditorView, ReactCodeMirrorProps, ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { Array, Match, pipe, Struct } from 'effect';
 import { createContext, RefAttributes, use, useContext, useRef } from 'react';
-import { mergeProps } from 'react-aria';
 import { Tree as AriaTree } from 'react-aria-components';
-import { FieldPath, FieldValues, useController, UseControllerProps } from 'react-hook-form';
 import { tv, VariantProps } from 'tailwind-variants';
 import {
   ReferenceContext as ReferenceContextMessage,
@@ -19,8 +17,8 @@ import {
   ReferenceService,
   ReferenceTreeItem,
 } from '@the-dev-tools/spec/buf/api/reference/v1/reference_pb';
-import { controllerPropKeys, ControllerPropKeys } from '@the-dev-tools/ui/react-hook-form';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
+import { useTheme } from '@the-dev-tools/ui/theme';
 import { TreeItem } from '@the-dev-tools/ui/tree';
 import { useConnectSuspenseQuery } from '~/shared/api';
 import { useReactRender } from '~/shared/lib';
@@ -137,28 +135,30 @@ export const ReferenceTreeItemView = ({ id, parentKeys, reference }: ReferenceTr
       textValue={keyText ?? kindIndexTag ?? ''}
     >
       {key.kind === ReferenceKeyKind.GROUP && (
-        <span className={tw`text-xs leading-5 font-semibold tracking-tight text-slate-800`}>{key.group}</span>
+        <span className={tw`text-xs leading-5 font-semibold tracking-tight text-on-neutral`}>{key.group}</span>
       )}
 
       {key.kind === ReferenceKeyKind.KEY && (
-        <span className={tw`font-mono text-xs leading-5 text-red-700`}>{key.key}</span>
+        <span className={tw`font-mono text-xs leading-5 text-danger`}>{key.key}</span>
       )}
 
       {tags.map((tag, index) => (
         <span
-          className={tw`rounded-sm bg-slate-200 px-2 py-0.5 text-xs font-medium tracking-tight text-slate-500`}
+          className={tw`rounded-sm bg-neutral px-2 py-0.5 text-xs font-medium tracking-tight text-on-neutral-low`}
           key={index}
         >
           {tag}
         </span>
       ))}
 
-      {quantity && <span className={tw`text-xs leading-5 font-medium tracking-tight text-slate-500`}>{quantity}</span>}
+      {quantity && (
+        <span className={tw`text-xs leading-5 font-medium tracking-tight text-on-neutral-low`}>{quantity}</span>
+      )}
 
       {reference.kind === ReferenceKind.VALUE && (
         <>
-          <span className={tw`font-mono text-xs leading-5 text-slate-800`}>:</span>
-          <span className={tw`flex-1 font-mono text-xs leading-5 break-all text-blue-700`}>{reference.value}</span>
+          <span className={tw`font-mono text-xs leading-5 text-on-neutral`}>:</span>
+          <span className={tw`flex-1 font-mono text-xs leading-5 break-all text-info`}>{reference.value}</span>
         </>
       )}
     </TreeItem>
@@ -166,7 +166,7 @@ export const ReferenceTreeItemView = ({ id, parentKeys, reference }: ReferenceTr
 };
 
 const fieldStyles = tv({
-  base: tw`min-w-0 rounded-md border border-slate-200 px-3 py-0.5 text-md text-slate-800`,
+  base: tw`min-w-0 rounded-md border border-neutral px-3 py-0.5 text-md text-on-neutral`,
   variants: {
     variant: {
       'table-cell': tw`w-full rounded-none border-transparent px-5 py-0.5 -outline-offset-4`,
@@ -194,6 +194,8 @@ export const ReferenceField = ({
 }: ReferenceFieldProps) => {
   const props = Struct.omit(forwardedProps, ...fieldStyles.variantKeys);
   const variantProps = Struct.pick(forwardedProps, ...fieldStyles.variantKeys);
+
+  const { theme } = useTheme();
 
   const transport = useTransport();
   const client = createClient(ReferenceService, transport);
@@ -230,35 +232,8 @@ export const ReferenceField = ({
         else if (refProp) refProp.current = _;
         ref.current = _;
       }}
+      theme={theme}
       {...props}
     />
   );
-};
-
-interface ReferenceFieldRHFProps<
-  TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
->
-  extends Omit<ReferenceFieldProps, ControllerPropKeys>, UseControllerProps<TFieldValues, TName> {}
-
-export const ReferenceFieldRHF = <
-  TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
->(
-  props: ReferenceFieldRHFProps<TFieldValues, TName>,
-) => {
-  const forwardedProps = Struct.omit(props, ...controllerPropKeys);
-  const controllerProps = Struct.pick(props, ...controllerPropKeys);
-
-  const { field } = useController({ defaultValue: '' as never, ...controllerProps });
-
-  const fieldProps: ReferenceFieldProps = {
-    onBlur: field.onBlur,
-    onChange: field.onChange,
-    readOnly: field.disabled ?? false,
-    ref: field.ref,
-    value: field.value,
-  };
-
-  return <ReferenceField {...mergeProps(fieldProps, forwardedProps)} />;
 };

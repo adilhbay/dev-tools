@@ -2,7 +2,7 @@ import { Command, FetchHttpClient, Path, Url } from '@effect/platform';
 import * as NodeContext from '@effect/platform-node/NodeContext';
 import * as NodeRuntime from '@effect/platform-node/NodeRuntime';
 import { Config, Console, Effect, pipe, Runtime, String } from 'effect';
-import { app, BrowserWindow, dialog, Dialog, globalShortcut, ipcMain, protocol, shell } from 'electron';
+import { app, BrowserWindow, dialog, Dialog, globalShortcut, ipcMain, nativeTheme, protocol, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -32,6 +32,7 @@ const createWindow = Effect.gen(function* () {
 
   // Create the browser window.
   const mainWindow = new BrowserWindow({
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : 'white',
     height: 600,
     icon,
     title: 'DevTools Studio',
@@ -194,7 +195,9 @@ const onReady = Effect.gen(function* () {
     return methodFunction(...options);
   });
 
-  ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().then((_) => _?.updateInfo.version));
+  ipcMain.handle('update:check', () =>
+    autoUpdater.checkForUpdates().then((_) => (_?.isUpdateAvailable ? _.updateInfo.version : null)),
+  );
   ipcMain.on('update:start', () => void autoUpdater.downloadUpdate());
   autoUpdater.on('download-progress', (_) => void mainWindow.webContents.send('update:progress', _));
   autoUpdater.on('update-downloaded', () => void autoUpdater.quitAndInstall());

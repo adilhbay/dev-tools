@@ -203,14 +203,13 @@ func (e *UnifiedEnv) trackExprReads(exprStr string) {
 // Includes the data, custom functions, and built-in helper functions.
 //
 // Data structure:
-//   - env: environment/flow variables (access via env.apiKey or env["key.with.dots"])
+//   - varName: environment/flow variables (access via {{ apiKey }} or {{ varName }})
 //   - nodeName: node outputs (access via nodeName.response.body)
 func (e *UnifiedEnv) buildExprEnv() map[string]any {
 	env := make(map[string]any, len(e.data)+len(e.customFuncs)+10)
 
 	// Copy data directly - no unflattening needed
-	// Environment variables are namespaced under "env" key
-	// Keys with dots can be accessed via bracket notation: env["key.with.dots"]
+	// Environment variables are flat keys at the root level
 	for k, v := range e.data {
 		env[k] = v
 	}
@@ -226,6 +225,10 @@ func (e *UnifiedEnv) buildExprEnv() map[string]any {
 
 	// Add built-in AI helper function (closure that captures 'e' for variable lookup)
 	env["ai"] = e.helperAI
+
+	// Add built-in ID generator functions
+	env["uuid"] = helperUUID
+	env["ulid"] = helperULID
 
 	return env
 }
@@ -345,7 +348,7 @@ func isKeyword(s string) bool {
 		"contains": true, "startsWith": true, "endsWith": true,
 		"now": true, "date": true, "duration": true,
 		// Custom helper functions
-		"get": true, "has": true, "ai": true,
+		"get": true, "has": true, "ai": true, "uuid": true, "ulid": true,
 	}
 	return keywords[s]
 }

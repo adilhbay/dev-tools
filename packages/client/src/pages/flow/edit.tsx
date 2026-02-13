@@ -1,5 +1,5 @@
 import { create } from '@bufbuild/protobuf';
-import { eq, useLiveQuery } from '@tanstack/react-db';
+import { eq, Query, useLiveQuery } from '@tanstack/react-db';
 import { useMatchRoute, useRouter } from '@tanstack/react-router';
 import * as XF from '@xyflow/react';
 import { Duration, Match, pipe } from 'effect';
@@ -12,14 +12,7 @@ import { FiClock, FiCpu, FiMinus, FiMoreHorizontal, FiPlus, FiStopCircle, FiX } 
 import { Group as PanelGroup, Panel as ResizablePanel } from 'react-resizable-panels';
 import { twJoin } from 'tailwind-merge';
 import { FileKind } from '@the-dev-tools/spec/buf/api/file_system/v1/file_system_pb';
-import {
-  FlowSchema,
-  FlowService,
-  FlowVariable,
-  HandleKind,
-  NodeKind,
-  NodeSchema,
-} from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
+import { FlowSchema, FlowService, HandleKind, NodeKind, NodeSchema } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import { FileCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/file_system';
 import {
   EdgeCollectionSchema,
@@ -29,26 +22,28 @@ import {
   NodeHttpCollectionSchema,
 } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
 import { Button, ButtonAsRouteLink } from '@the-dev-tools/ui/button';
-import { DataTable, useReactTable } from '@the-dev-tools/ui/data-table';
+import { Checkbox } from '@the-dev-tools/ui/checkbox';
 import { PlayCircleIcon } from '@the-dev-tools/ui/icons';
 import { Menu, MenuItem, useContextMenuState } from '@the-dev-tools/ui/menu';
 import { Modal, useProgrammaticModal } from '@the-dev-tools/ui/modal';
 import { DropIndicatorHorizontal } from '@the-dev-tools/ui/reorder';
 import { PanelResizeHandle } from '@the-dev-tools/ui/resizable-panel';
 import { Separator } from '@the-dev-tools/ui/separator';
+import { Table, TableBody, TableCell, TableColumn, TableFooter, TableHeader, TableRow } from '@the-dev-tools/ui/table';
 import { tw } from '@the-dev-tools/ui/tailwind-literal';
 import { TextInputField, useEditableTextState } from '@the-dev-tools/ui/text-field';
-import { ReferenceContext } from '~/features/expression';
-import {
-  columnActionsCommon,
-  columnCheckboxField,
-  columnReferenceField,
-  columnTextField,
-  useFormTable,
-  useFormTableAddRow,
-} from '~/features/form-table';
+import { ReferenceContext, ReferenceField } from '~/features/expression';
+import { ColumnActionDelete } from '~/features/form-table';
 import { request, useApiCollection } from '~/shared/api';
-import { eqStruct, getNextOrder, handleCollectionReorder, pick, queryCollection } from '~/shared/lib';
+import {
+  eqStruct,
+  getNextOrder,
+  handleCollectionReorder,
+  LiveQuery,
+  pick,
+  pickStruct,
+  queryCollection,
+} from '~/shared/lib';
 import { routes } from '~/shared/routes';
 import { AddNodeSidebar } from './add-node';
 import { AgentPanel } from './agent-panel';
@@ -103,7 +98,7 @@ export const FlowEditPage = () => {
                 <ActionBar />
 
                 {sidebar && (
-                  <XF.Panel className={tw`inset-y-0 w-80 border-l border-slate-200 bg-white`} position='top-right'>
+                  <XF.Panel className={tw`inset-y-0 w-80 border-l border-neutral bg-neutral-lowest`} position='top-right'>
                     {sidebar}
                   </XF.Panel>
                 )}
@@ -246,7 +241,7 @@ export const Flow = ({ children }: PropsWithChildren) => {
     <>
       {statusBarEndSlot &&
         createPortal(
-          <div className={tw`flex gap-4 text-xs leading-none text-slate-800`}>
+          <div className={tw`flex gap-4 text-xs leading-none text-on-neutral`}>
             <NodeSelectionIndicator />
             {duration && <div>Time: {pipe(duration, Duration.millis, Duration.format)}</div>}
           </div>,
@@ -287,7 +282,7 @@ export const Flow = ({ children }: PropsWithChildren) => {
         viewport={viewport}
       >
         <XF.Background
-          className={tw`text-slate-300`}
+          className={tw`text-neutral-high`}
           color='currentColor'
           gap={20}
           size={2}
@@ -337,16 +332,16 @@ export const TopBar = ({ children }: TopBarProps) => {
   });
 
   return (
-    <div className={tw`flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2.5`}>
+    <div className={tw`flex items-center gap-2 border-b border-neutral bg-neutral-lowest px-3 py-2.5`}>
       {isEditing ? (
         <TextInputField
           aria-label='Flow name'
-          inputClassName={tw`-my-1 py-1 text-md leading-none font-medium tracking-tight text-slate-800`}
+          inputClassName={tw`-my-1 py-1 text-md leading-none font-medium tracking-tight text-on-neutral`}
           {...textFieldProps}
         />
       ) : (
         <AriaButton
-          className={tw`cursor-text text-md leading-5 font-medium tracking-tight text-slate-800`}
+          className={tw`cursor-text text-md leading-5 font-medium tracking-tight text-on-neutral`}
           onContextMenu={onContextMenu}
           onPress={() => void edit()}
         >
@@ -360,9 +355,8 @@ export const TopBar = ({ children }: TopBarProps) => {
 
       <ButtonAsRouteLink
         className={twJoin(
-          tw`px-1 py-0 text-slate-800`,
-          matchRoute({ to: router.routesById[routes.dashboard.workspace.flow.history.id].fullPath }) &&
-            tw`bg-slate-200`,
+          tw`px-1 py-0 text-on-neutral`,
+          matchRoute({ to: router.routesById[routes.dashboard.workspace.flow.history.id].fullPath }) && tw`bg-neutral`,
         )}
         params={{ flowIdCan, workspaceIdCan }}
         to={
@@ -372,12 +366,12 @@ export const TopBar = ({ children }: TopBarProps) => {
         }
         variant='ghost'
       >
-        <FiClock className={tw`size-4 text-slate-500`} /> Flows History
+        <FiClock className={tw`size-4 text-on-neutral-low`} /> Flows History
       </ButtonAsRouteLink>
 
       <MenuTrigger {...menuTriggerProps}>
-        <Button className={tw`bg-slate-200 p-0.5`} variant='ghost'>
-          <FiMoreHorizontal className={tw`size-4 text-slate-500`} />
+        <Button className={tw`bg-neutral p-0.5`} variant='ghost'>
+          <FiMoreHorizontal className={tw`size-4 text-on-neutral-low`} />
         </Button>
 
         <Menu {...menuProps}>
@@ -406,10 +400,10 @@ export const TopBarWithControls = () => {
         onPress={() => void zoomOut({ duration: 100 })}
         variant='ghost'
       >
-        <FiMinus className={tw`size-4 text-slate-500`} />
+        <FiMinus className={tw`size-4 text-on-neutral-low`} />
       </Button>
 
-      <div className={tw`w-10 text-center text-sm leading-5 font-medium tracking-tight text-gray-900`}>
+      <div className={tw`w-10 text-center text-sm leading-5 font-medium tracking-tight text-on-neutral`}>
         {Math.floor(zoom * 100)}%
       </div>
 
@@ -419,10 +413,10 @@ export const TopBarWithControls = () => {
         onPress={() => void zoomIn({ duration: 100 })}
         variant='ghost'
       >
-        <FiPlus className={tw`size-4 text-slate-500`} />
+        <FiPlus className={tw`size-4 text-on-neutral-low`} />
       </Button>
 
-      <div className={tw`h-4 w-px bg-slate-200`} />
+      <div className={tw`h-4 w-px bg-neutral`} />
     </TopBar>
   );
 };
@@ -444,12 +438,9 @@ const ActionBar = () => {
     ).data ?? create(FlowSchema);
 
   return (
-    <XF.Panel
-      className={tw`mb-4 flex items-center gap-2 rounded-lg bg-slate-900 p-1 shadow-sm`}
-      position='bottom-center'
-    >
+    <XF.Panel className={tw`mb-4 flex items-center gap-2 rounded-lg bg-inverse p-1 shadow-sm`} position='bottom-center'>
       <Button className={tw`px-1.5 py-1`} onPress={() => void setSidebar?.(<AddNodeSidebar />)} variant='ghost dark'>
-        <FiPlus className={tw`size-5 text-slate-300`} />
+        <FiPlus className={tw`size-5 text-on-inverse-low`} />
         Add Node
       </Button>
 
@@ -484,45 +475,14 @@ const FlowSettings = () => {
 
   const collection = useApiCollection(FlowVariableCollectionSchema);
 
-  const { data: variables } = useLiveQuery(
+  const { data: items } = useLiveQuery(
     (_) =>
-      _.from({ variable: collection })
-        .where((_) => eq(_.variable.flowId, flowId))
-        .orderBy((_) => _.variable.order),
+      _.from({ item: collection })
+        .where(eqStruct({ flowId }))
+        .select(pickStruct('flowVariableId', 'order'))
+        .orderBy((_) => _.item.order),
     [collection, flowId],
   );
-
-  const table = useReactTable({
-    columns: [
-      columnCheckboxField<FlowVariable>('enabled', { meta: { divider: false } }),
-      columnReferenceField<FlowVariable>('key', { meta: { isRowHeader: true } }),
-      columnReferenceField<FlowVariable>('value', { allowFiles: true }),
-      columnTextField<FlowVariable>('description', { meta: { divider: false } }),
-      columnActionsCommon<FlowVariable>({
-        onDelete: (_) => collection.utils.delete(collection.utils.getKeyObject(_)),
-      }),
-    ],
-    data: variables,
-    getRowId: (_) => collection.utils.getKey(_),
-  });
-
-  const formTable = useFormTable<FlowVariable>({
-    onUpdate: ({ $typeName: _, ...item }) => collection.utils.update(item),
-  });
-
-  const addRow = useFormTableAddRow({
-    createLabel: 'New variable',
-    items: variables,
-    onCreate: async () =>
-      collection.utils.insert({
-        enabled: true,
-        flowId,
-        flowVariableId: Ulid.generate().bytes,
-        key: `FLOW_VARIABLE_${variables.length}`,
-        order: await getNextOrder(collection),
-      }),
-    primaryColumn: 'key',
-  });
 
   const { dragAndDropHooks } = useDragAndDrop({
     getItems: (keys) => [...keys].map((key) => ({ key: key.toString() })),
@@ -532,24 +492,118 @@ const FlowSettings = () => {
 
   return (
     <>
-      <div className={tw`sticky top-0 z-10 flex items-center border-b border-slate-200 bg-white px-5 py-2`}>
-        <div className={tw`text-sm leading-5 font-medium text-slate-800`}>Flow variables</div>
+      <div className={tw`sticky top-0 z-10 flex items-center border-b border-neutral bg-neutral-lowest px-5 py-2`}>
+        <div className={tw`text-sm leading-5 font-medium text-on-neutral`}>Flow variables</div>
 
         <div className={tw`flex-1`} />
 
         <Button className={tw`p-1`} slot='close' variant='ghost'>
-          <FiX className={tw`size-5 text-slate-500`} />
+          <FiX className={tw`size-5 text-on-neutral-low`} />
         </Button>
       </div>
 
       <div className={tw`m-5`}>
-        <DataTable
-          {...formTable}
-          {...addRow}
-          aria-label='Flow variables'
-          dragAndDropHooks={dragAndDropHooks}
-          table={table}
-        />
+        <Table aria-label='Flow variables' dragAndDropHooks={dragAndDropHooks}>
+          <TableHeader>
+            <TableColumn width={32} />
+            <TableColumn isRowHeader>Key</TableColumn>
+            <TableColumn>Value</TableColumn>
+            <TableColumn>Description</TableColumn>
+            <TableColumn width={32} />
+          </TableHeader>
+
+          <TableBody items={items}>
+            {({ flowVariableId }) => {
+              const query = new Query().from({ item: collection }).where(eqStruct({ flowVariableId })).findOne();
+
+              return (
+                <TableRow id={collection.utils.getKey({ flowVariableId })}>
+                  <TableCell className={tw`border-r-0`}>
+                    <LiveQuery query={() => query.select(pickStruct('enabled'))}>
+                      {({ data }) => (
+                        <Checkbox
+                          aria-label='Enabled'
+                          isSelected={data?.enabled ?? false}
+                          isTableCell
+                          onChange={(_) => void collection.utils.update({ enabled: _, flowVariableId })}
+                        />
+                      )}
+                    </LiveQuery>
+                  </TableCell>
+
+                  <TableCell>
+                    <LiveQuery query={() => query.select(pickStruct('key'))}>
+                      {({ data }) => (
+                        <ReferenceField
+                          className='flex-1'
+                          kind='StringExpression'
+                          onChange={(_) => void collection.utils.update({ flowVariableId, key: _ })}
+                          placeholder={`Enter key`}
+                          value={data?.key ?? ''}
+                          variant='table-cell'
+                        />
+                      )}
+                    </LiveQuery>
+                  </TableCell>
+
+                  <TableCell>
+                    <LiveQuery query={() => query.select(pickStruct('value'))}>
+                      {({ data }) => (
+                        <ReferenceField
+                          allowFiles
+                          className='flex-1'
+                          kind='StringExpression'
+                          onChange={(_) => void collection.utils.update({ flowVariableId, value: _ })}
+                          placeholder={`Enter value`}
+                          value={data?.value ?? ''}
+                          variant='table-cell'
+                        />
+                      )}
+                    </LiveQuery>
+                  </TableCell>
+
+                  <TableCell>
+                    <LiveQuery query={() => query.select(pickStruct('description'))}>
+                      {({ data }) => (
+                        <TextInputField
+                          aria-label='Description'
+                          className='flex-1'
+                          isTableCell
+                          onChange={(_) => void collection.utils.update({ description: _, flowVariableId })}
+                          placeholder={`Enter description`}
+                          value={data?.description ?? ''}
+                        />
+                      )}
+                    </LiveQuery>
+                  </TableCell>
+
+                  <TableCell className={tw`border-r-0 px-1`}>
+                    <ColumnActionDelete onDelete={() => void collection.utils.delete({ flowVariableId })} />
+                  </TableCell>
+                </TableRow>
+              );
+            }}
+          </TableBody>
+
+          <TableFooter>
+            <Button
+              className={tw`w-full justify-start -outline-offset-4`}
+              onPress={async () => {
+                collection.utils.insert({
+                  enabled: true,
+                  flowId,
+                  flowVariableId: Ulid.generate().bytes,
+                  key: `FLOW_VARIABLE_${items.length}`,
+                  order: await getNextOrder(collection),
+                });
+              }}
+              variant='ghost'
+            >
+              <FiPlus className={tw`size-4 text-on-neutral-low`} />
+              New variable
+            </Button>
+          </TableFooter>
+        </Table>
       </div>
     </>
   );
