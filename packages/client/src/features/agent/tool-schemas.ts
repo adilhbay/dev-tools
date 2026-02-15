@@ -110,11 +110,19 @@ if (createHttpNodeDef) {
   };
   params.properties['body'] = {
     description:
-      'Optional JSON request body for POST, PUT, or PATCH requests. Only valid for methods that support a body.',
+      'Optional JSON request body for POST, PUT, or PATCH requests. Only valid for methods that support a body. Supports {{variable}} interpolation.',
     type: 'string',
   };
   // Remove additionalProperties:false so the extra field is accepted
   delete (params as Record<string, unknown>)['additionalProperties'];
+
+  if (params.properties['url']) {
+    params.properties['url'] = {
+      ...params.properties['url'] as object,
+      description:
+        'The URL for the HTTP request. Supports {{variable}} interpolation, e.g. {{BASE_URL}}/api/users',
+    };
+  }
 }
 
 /** All tool schemas combined - ready for AI tool calling */

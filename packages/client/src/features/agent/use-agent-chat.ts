@@ -8,6 +8,7 @@ import {
   EdgeCollectionSchema,
   FlowCollectionSchema,
   FlowVariableCollectionSchema,
+  NodeAiCollectionSchema,
   NodeCollectionSchema,
   NodeConditionCollectionSchema,
   NodeExecutionCollectionSchema,
@@ -43,7 +44,7 @@ import {
   type ToolSchema,
 } from './types';
 
-const MODEL = 'moonshotai/kimi-k2.5';
+const MODEL = 'minimax/minimax-m2.5';
 
 const createOpenRouterClient = (apiKey: string) =>
   new OpenAI({
@@ -150,6 +151,7 @@ type NodeCollection = ReturnType<typeof useApiCollection<typeof NodeCollectionSc
 type EdgeCollection = ReturnType<typeof useApiCollection<typeof EdgeCollectionSchema>>;
 
 const NODE_KIND_NAMES: Record<number, string> = {
+  [NodeKind.AI]: 'Ai',
   [NodeKind.CONDITION]: 'Condition',
   [NodeKind.FOR]: 'For',
   [NodeKind.FOR_EACH]: 'ForEach',
@@ -247,7 +249,7 @@ const clientToolSchemas: ToolSchema[] = [
     description:
       'Update any node\'s configuration in a single call. Provide nodeId and only the fields to change — unspecified fields stay unchanged. ' +
       'Base fields (name) work on any node. Type-specific fields: ' +
-      'Condition: condition. For: iterations, condition (break), errorHandling. ' +
+      'Ai: prompt, maxIterations. Condition: condition. For: iterations, condition (break), errorHandling. ' +
       'ForEach: path, condition (break), errorHandling. JS: code. ' +
       'HTTP: method, url, headers, searchParams, body, assertions (arrays replace existing set).',
     name: 'updateNode',
@@ -267,7 +269,7 @@ const clientToolSchemas: ToolSchema[] = [
           type: 'array',
         },
         body: {
-          description: 'Raw body content (JSON string). Set to null to clear. (HTTP only)',
+          description: 'Raw body content (JSON string). Set to null to clear. (HTTP only) Supports {{variable}} interpolation.',
           type: ['string', 'null'],
         },
         code: {
@@ -289,7 +291,7 @@ const clientToolSchemas: ToolSchema[] = [
             properties: {
               enabled: { type: 'boolean' },
               key: { type: 'string' },
-              value: { type: 'string' },
+              value: { description: 'Supports {{variable}} interpolation, e.g. Bearer {{Auth.response.body.token}}', type: 'string' },
             },
             required: ['key'],
             type: 'object',
@@ -298,6 +300,10 @@ const clientToolSchemas: ToolSchema[] = [
         },
         iterations: {
           description: 'Number of loop iterations, must be positive (For nodes only)',
+          type: 'integer',
+        },
+        maxIterations: {
+          description: 'Maximum number of agentic iterations, must be positive (Ai nodes only)',
           type: 'integer',
         },
         method: {
@@ -314,20 +320,93 @@ const clientToolSchemas: ToolSchema[] = [
           description: 'Collection expression to iterate (ForEach nodes only, expr-lang syntax)',
           type: 'string',
         },
+        prompt: {
+          description: 'The prompt or system instructions for the AI agent (Ai nodes only)',
+          type: 'string',
+        },
         searchParams: {
           description: 'Replaces all existing query parameters (HTTP only)',
           items: {
             properties: {
               enabled: { type: 'boolean' },
               key: { type: 'string' },
-              value: { type: 'string' },
+              value: { description: 'Supports {{variable}} interpolation.', type: 'string' },
             },
             required: ['key'],
             type: 'object',
           },
           type: 'array',
         },
-        url: { description: 'Request URL (HTTP nodes only)', type: 'string' },
+        url: { description: 'Request URL (HTTP nodes only). Supports {{variable}} interpolation, e.g. {{BASE_URL}}/api/users/{{id}}', type: 'string' },
+      },
+      required: ['nodeId'],
+      type: 'object',
+    },
+  },
+  {
+    description:
+      'Incrementally add or remove headers, query params, or assertions on an HTTP node without replacing the full set. ' +
+      'Use this when modifying individual items. For full replacement, use updateNode instead.',
+    name: 'patchHttpNode',
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        nodeId: { description: 'The HTTP node ID to patch', type: 'string' },
+        addHeaders: {
+          description: 'Headers to append. Supports {{variable}} interpolation in values.',
+          items: {
+            properties: {
+              description: { type: 'string' },
+              enabled: { type: 'boolean' },
+              key: { type: 'string' },
+              value: { description: 'Supports {{variable}} interpolation', type: 'string' },
+            },
+            required: ['key'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        removeHeaderIds: {
+          description: 'IDs of headers to remove (get IDs from inspectNode)',
+          items: { type: 'string' },
+          type: 'array',
+        },
+        addSearchParams: {
+          description: 'Query params to append. Supports {{variable}} interpolation in values.',
+          items: {
+            properties: {
+              description: { type: 'string' },
+              enabled: { type: 'boolean' },
+              key: { type: 'string' },
+              value: { description: 'Supports {{variable}} interpolation', type: 'string' },
+            },
+            required: ['key'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        removeSearchParamIds: {
+          description: 'IDs of query params to remove (get IDs from inspectNode)',
+          items: { type: 'string' },
+          type: 'array',
+        },
+        addAssertions: {
+          description: 'Assertions to append',
+          items: {
+            properties: {
+              enabled: { type: 'boolean' },
+              value: { type: 'string' },
+            },
+            required: ['value'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        removeAssertionIds: {
+          description: 'IDs of assertions to remove (get IDs from inspectNode)',
+          items: { type: 'string' },
+          type: 'array',
+        },
       },
       required: ['nodeId'],
       type: 'object',
@@ -338,8 +417,9 @@ const clientToolSchemas: ToolSchema[] = [
       'PREFERRED tool for ALL node connections. Connects nodes into a chain with optional parallel fan-out. ' +
       'Flat array: sequential chain. Nested array: parallel branches. ' +
       'Example: ["Start",["A","B"],"End"] creates Start→A, Start→B, A→End, B→End. ' +
-      'Works for ALL node types. For branching nodes (Condition, For, ForEach), auto-applies "then" handle by default. ' +
-      'Use sourceHandle "else" or "loop" to override for non-default branches.',
+      'Works for ALL node types. For branching nodes (Condition, For, ForEach, Ai), auto-applies "then" handle by default. ' +
+      'Use sourceHandle "else" or "loop" to override for non-default branches. ' +
+      'Use sourceHandle "ai_tools" to connect tool nodes to an Ai node.',
     name: 'connectChain',
     parameters: {
       additionalProperties: false,
@@ -356,8 +436,9 @@ const clientToolSchemas: ToolSchema[] = [
         sourceHandle: {
           description:
             'Handle for branching source nodes. Defaults to "then". ' +
-            'Use "else" for Condition false-branch, "loop" for For/ForEach loop-body.',
-          enum: ['then', 'else', 'loop'],
+            'Use "else" for Condition false-branch, "loop" for For/ForEach loop-body, ' +
+            '"ai_tools" for connecting tool nodes to an Ai node.',
+          enum: ['then', 'else', 'loop', 'ai_tools'],
           type: 'string',
         },
       },
@@ -468,6 +549,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
   const nodeCollection = useApiCollection(NodeCollectionSchema);
   const edgeCollection = useApiCollection(EdgeCollectionSchema);
   const variableCollection = useApiCollection(FlowVariableCollectionSchema);
+  const aiCollection = useApiCollection(NodeAiCollectionSchema);
   const jsCollection = useApiCollection(NodeJsCollectionSchema);
   const conditionCollection = useApiCollection(NodeConditionCollectionSchema);
   const forCollection = useApiCollection(NodeForCollectionSchema);
@@ -499,6 +581,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
 
       // Build context fresh at execution time to avoid stale closures
       const collections: Collections = {
+        aiCollection,
         conditionCollection,
         edgeCollection,
         executionCollection,
@@ -541,6 +624,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
       const toolContext: ToolExecutorContext = {
         collections,
         flowContext: currentFlowContext,
+        sessionCreatedNodeIds: new Set<string>(),
         transport,
         waitForFlowCompletion,
         workspaceId,
@@ -847,7 +931,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
         }
       }
     },
-    [apiKey, flowId, transport, nodeCollection, edgeCollection, variableCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, fileCollection, flowCollection, workspaceId],
+    [apiKey, flowId, transport, nodeCollection, edgeCollection, variableCollection, aiCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, fileCollection, flowCollection, workspaceId],
   );
 
   const clearMessages = useCallback(() => {
