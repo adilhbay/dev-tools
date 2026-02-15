@@ -2,7 +2,7 @@ import { eq, useLiveQuery } from '@tanstack/react-db';
 import * as XF from '@xyflow/react';
 import { Ulid } from 'id128';
 import { FormEvent, KeyboardEvent, use, useEffect, useMemo, useRef, useState } from 'react';
-import { FiArrowUp, FiChevronUp, FiTrash2, FiX } from 'react-icons/fi';
+import { FiArrowUp, FiChevronUp, FiEdit, FiX } from 'react-icons/fi';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { NodeCollectionSchema } from '@the-dev-tools/spec/tanstack-db/v1/api/flow';
@@ -143,7 +143,7 @@ export const AgentPanel = () => {
           onPress={clearMessages}
           variant='ghost'
         >
-          <FiTrash2 className={tw`size-3.5`} />
+          <FiEdit className={tw`size-3.5`} />
         </Button>
 
         <Button
