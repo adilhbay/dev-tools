@@ -22,7 +22,7 @@ export const $onEmit = async (context: EmitContext) => {
   await writeOutput(
     program,
     <Output printWidth={120} program={program}>
-      <SourceDirectory path="v1">
+      <SourceDirectory path='v1'>
         <CategoryFiles />
       </SourceDirectory>
     </Output>,
@@ -73,9 +73,7 @@ interface ResolvedTool {
 }
 
 function isVisibleFor(property: ModelProperty, phase: 'Create' | 'Update'): boolean {
-  const visibilityDec = property.decorators.find(
-    (d) => d.decorator.name === '$visibility',
-  );
+  const visibilityDec = property.decorators.find((d) => d.decorator.name === '$visibility');
   if (!visibilityDec) return true;
 
   return visibilityDec.args.some((arg) => {
@@ -84,7 +82,11 @@ function isVisibleFor(property: ModelProperty, phase: 'Create' | 'Update'): bool
   });
 }
 
-function resolveToolProperties(program: Program, collectionModel: Model, toolDef: MutationToolOptions): ResolvedProperty[] {
+function resolveToolProperties(
+  program: Program,
+  collectionModel: Model,
+  toolDef: MutationToolOptions,
+): ResolvedProperty[] {
   const { exclude = [], include = [], operation, parent: parentName } = toolDef;
   const parent = parentName ? collectionModel.namespace?.models.get(parentName) : undefined;
 
@@ -229,11 +231,13 @@ const CategoryFiles = () => {
             <hbr />
             {'}'} as const
           </VarDeclaration>
-          <hbr /><hbr />
+          <hbr />
+          <hbr />
           <For each={tools}>
             {(tool) => (
               <>
-                export type {tool.name} = typeof {tool.name}.Type;<hbr />
+                export type {tool.name} = typeof {tool.name}.Type;
+                <hbr />
               </>
             )}
           </For>
@@ -261,7 +265,8 @@ const SchemaImports = ({ tools }: { tools: ResolvedTool[] }) => {
   return (
     <>
       {code`import { Schema } from 'effect';`}
-      <hbr /><hbr />
+      <hbr />
+      <hbr />
       <Show when={commonImportList.length > 0}>
         import {'{'}
         <hbr />
@@ -293,16 +298,22 @@ const ToolSchema = ({ tool }: { tool: ResolvedTool }) => {
       <hbr />
       {'}'}).pipe(
       <hbr />
+      <Indent>
+        Schema.annotations({'{'}
+        <hbr />
         <Indent>
-          Schema.annotations({'{'}
+          identifier: &quot;{identifier}&quot;,
           <hbr />
-          <Indent>
-            identifier: &quot;{identifier}&quot;,<hbr />
-            <Show when={!!tool.title}>title: &quot;{tool.title}&quot;,<hbr /></Show>
-            <Show when={!!tool.description}>description: {formatStringLiteral(tool.description ?? '')},<hbr /></Show>
-          </Indent>
-          {'}'}),
+          <Show when={!!tool.title}>
+            title: &quot;{tool.title}&quot;,
+            <hbr />
+          </Show>
+          <Show when={!!tool.description}>
+            description: {formatStringLiteral(tool.description ?? '')},<hbr />
+          </Show>
         </Indent>
+        {'}'}),
+      </Indent>
       <hbr />)
     </VarDeclaration>
   );
@@ -331,7 +342,9 @@ const PropertySchema = ({ isOptional, property }: PropertySchemaProps) => {
         <Indent>
           Schema.annotations({'{'}
           <hbr />
-          <Indent>description: {formatStringLiteral(description)},<hbr /></Indent>
+          <Indent>
+            description: {formatStringLiteral(description)},<hbr />
+          </Indent>
           {'}'}),
         </Indent>
         <hbr />)
@@ -353,9 +366,7 @@ const PropertySchema = ({ isOptional, property }: PropertySchemaProps) => {
     );
   }
 
-  const schemaExpr = needsOptionalWrapper
-    ? `Schema.optional(${fieldSchema.expression})`
-    : fieldSchema.expression;
+  const schemaExpr = needsOptionalWrapper ? `Schema.optional(${fieldSchema.expression})` : fieldSchema.expression;
 
   return (
     <>

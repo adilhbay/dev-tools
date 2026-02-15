@@ -36,5 +36,4 @@ namespace DevTools.AITools {
   }
 
   extern dec mutationTool(target: Reflection.Model, ...tools: valueof MutationToolOptions[]);
-
 }

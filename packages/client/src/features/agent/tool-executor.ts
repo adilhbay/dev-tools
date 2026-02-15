@@ -20,10 +20,7 @@ function normalizeJsCodeReferences(code: string): string {
   if (!code) return code;
 
   // Pattern: ["NodeName"] - replace whitespace in node name with underscores
-  return code.replace(
-    /\["([^"]+)"\]/g,
-    (_, nodeName) => `["${nodeName.replace(/\s+/g, '_')}"]`,
-  );
+  return code.replace(/\["([^"]+)"\]/g, (_, nodeName) => `["${nodeName.replace(/\s+/g, '_')}"]`);
 }
 
 /**
@@ -36,10 +33,7 @@ function normalizeConditionSyntax(expr: string): string {
   if (!expr) return expr;
 
   // Pattern: ["NodeName"] - convert to plain identifier with underscores
-  let normalized = expr.replace(
-    /\["([^"]+)"\]/g,
-    (_, nodeName) => nodeName.replace(/\s+/g, '_'),
-  );
+  let normalized = expr.replace(/\["([^"]+)"\]/g, (_, nodeName) => nodeName.replace(/\s+/g, '_'));
 
   // Convert JS strict equality/inequality to expr-lang operators
   normalized = normalized.replace(/===/g, '==');
@@ -188,9 +182,7 @@ const executeToolInternal = async (
       const nodeIds = args.nodeIds as (string | string[])[];
       const handleOverride = args.sourceHandle as string | undefined;
       if (handleOverride && !['ai_tools', 'else', 'loop', 'then'].includes(handleOverride)) {
-        throw new Error(
-          `Invalid sourceHandle "${handleOverride}". Valid values: "then", "else", "loop", "ai_tools".`,
-        );
+        throw new Error(`Invalid sourceHandle "${handleOverride}". Valid values: "then", "else", "loop", "ai_tools".`);
       }
       if (!nodeIds || nodeIds.length < 2) {
         throw new Error('connectChain requires at least 2 elements.');
@@ -201,8 +193,8 @@ const executeToolInternal = async (
         if (Array.isArray(nodeIds[i]) && Array.isArray(nodeIds[i + 1])) {
           throw new Error(
             `connectChain: consecutive nested arrays at positions ${i} and ${i + 1} are not allowed. ` +
-            `Insert a shared fan-in node between the groups, or split into separate connectChain calls. ` +
-            `Example: instead of ["A",["B","C"],["D","E"],"F"], use ["A",["B","C"],"Mid"] then ["Mid",["D","E"],"F"].`,
+              `Insert a shared fan-in node between the groups, or split into separate connectChain calls. ` +
+              `Example: instead of ["A",["B","C"],["D","E"],"F"], use ["A",["B","C"],"Mid"] then ["Mid",["D","E"],"F"].`,
           );
         }
       }
@@ -213,14 +205,10 @@ const executeToolInternal = async (
         if (Array.isArray(el)) {
           const unique = new Set(el);
           if (unique.size < 2) {
-            throw new Error(
-              `connectChain: parallel group at position ${i} must have at least 2 unique node IDs.`,
-            );
+            throw new Error(`connectChain: parallel group at position ${i} must have at least 2 unique node IDs.`);
           }
           if (unique.size !== el.length) {
-            throw new Error(
-              `connectChain: parallel group at position ${i} contains duplicate node IDs.`,
-            );
+            throw new Error(`connectChain: parallel group at position ${i} contains duplicate node IDs.`);
           }
         }
       }
@@ -232,8 +220,7 @@ const executeToolInternal = async (
         const next = nodeIds[i + 1]!;
         const sources = Array.isArray(current) ? current : [current];
         const targets = Array.isArray(next) ? next : [next];
-        for (const s of sources)
-          for (const t of targets) edgePairs.push([s, t]);
+        for (const s of sources) for (const t of targets) edgePairs.push([s, t]);
       }
 
       const edgeIds: string[] = [];
@@ -253,28 +240,20 @@ const executeToolInternal = async (
             _.from({ e: edgeCollection }).where((_) => eq(_.e.sourceId, sourceId)),
           );
 
-          const duplicateEdge = existingEdges.find(
-            (e) => Ulid.construct(e.targetId).toCanonical() === targetIdStr,
-          );
+          const duplicateEdge = existingEdges.find((e) => Ulid.construct(e.targetId).toCanonical() === targetIdStr);
           if (duplicateEdge) {
-            errors.push(
-              `Edge ${idx}: Edge from ${sourceIdStr} to ${targetIdStr} already exists. Skipped.`,
-            );
+            errors.push(`Edge ${idx}: Edge from ${sourceIdStr} to ${targetIdStr} already exists. Skipped.`);
             continue;
           }
 
           // Determine handle kind for branching nodes
           const sourceNode = flowContext.nodes.find((n) => n.id === sourceIdStr);
-          const isBranching =
-            sourceNode && ['Condition', 'For', 'ForEach'].includes(sourceNode.kind);
+          const isBranching = sourceNode && ['Condition', 'For', 'ForEach'].includes(sourceNode.kind);
           const isAiSource = sourceNode?.kind === 'Ai';
 
           // Validate handle is valid for the specific node type
           if (isBranching && handleOverride) {
-            const validHandles =
-              sourceNode.kind === 'Condition'
-                ? ['then', 'else']
-                : ['then', 'loop'];
+            const validHandles = sourceNode.kind === 'Condition' ? ['then', 'else'] : ['then', 'loop'];
             if (!validHandles.includes(handleOverride)) {
               errors.push(
                 `Edge ${idx}: Invalid sourceHandle "${handleOverride}" for ${sourceNode.kind} node "${sourceNode.name}". ` +
@@ -311,9 +290,7 @@ const executeToolInternal = async (
 
           edgeIds.push(Ulid.construct(edgeId).toCanonical());
         } catch (error) {
-          errors.push(
-            `Edge ${idx}: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          errors.push(`Edge ${idx}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
@@ -519,8 +496,7 @@ const executeToolInternal = async (
         const method = HTTP_METHOD_MAP[methodStr];
         if (method === undefined) {
           throw new Error(
-            `Invalid HTTP method: "${args.method}". ` +
-              'Valid methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
+            `Invalid HTTP method: "${args.method}". ` + 'Valid methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
           );
         }
 
@@ -561,8 +537,7 @@ const executeToolInternal = async (
           );
         } else if (body && !needsBody) {
           throw new Error(
-            `Cannot set body for ${methodStr} requests. ` +
-              'Only POST, PUT, and PATCH methods support a request body.',
+            `Cannot set body for ${methodStr} requests. ` + 'Only POST, PUT, and PATCH methods support a request body.',
           );
         }
       }
@@ -650,16 +625,15 @@ const executeToolInternal = async (
       if (context.sessionCreatedNodeIds.has(nodeIdStr)) {
         return {
           blocked: true,
-          message: 'Cannot delete a node you just created. If the node has an error, explain the issue to the user and suggest what they can do to fix it (e.g., adding an AI Provider node). Do NOT delete and recreate with a different node type.',
+          message:
+            'Cannot delete a node you just created. If the node has an error, explain the issue to the user and suggest what they can do to fix it (e.g., adding an AI Provider node). Do NOT delete and recreate with a different node type.',
         };
       }
 
       const nodeId = parseUlid(nodeIdStr);
 
       // Delete all edges connected to this node (both incoming and outgoing)
-      const connectedEdges = flowContext.edges.filter(
-        (e) => e.sourceId === nodeIdStr || e.targetId === nodeIdStr,
-      );
+      const connectedEdges = flowContext.edges.filter((e) => e.sourceId === nodeIdStr || e.targetId === nodeIdStr);
       for (const edge of connectedEdges) {
         edgeCollection.utils.delete({ edgeId: parseUlid(edge.id) });
       }
@@ -710,9 +684,7 @@ const executeToolInternal = async (
       );
 
       // Query all executions and filter to this flow's nodes
-      const allExecs = await queryCollection((_) =>
-        _.from({ exec: collections.executionCollection }),
-      );
+      const allExecs = await queryCollection((_) => _.from({ exec: collections.executionCollection }));
       const flowExecs = allExecs.filter(
         (e) => e.nodeId != null && nodeIdSet.has(Ulid.construct(e.nodeId).toCanonical()),
       );
@@ -755,9 +727,10 @@ const executeToolInternal = async (
       return {
         executedNodes,
         neverReachedNodes,
-        warning: neverReachedNodes.length > 0
-          ? `${neverReachedNodes.length} node(s) were never reached during execution. This may indicate an untaken branch or a wiring problem.`
-          : undefined,
+        warning:
+          neverReachedNodes.length > 0
+            ? `${neverReachedNodes.length} node(s) were never reached during execution. This may indicate an untaken branch or a wiring problem.`
+            : undefined,
       };
     }
 
@@ -782,14 +755,18 @@ const executeToolInternal = async (
       switch (node.kind) {
         case 'Condition': {
           const [condData] = await queryCollection((_) =>
-            _.from({ cond: conditionCollection }).where((_) => eq(_.cond.nodeId, nodeIdBytes)).findOne(),
+            _.from({ cond: conditionCollection })
+              .where((_) => eq(_.cond.nodeId, nodeIdBytes))
+              .findOne(),
           );
           result.condition = condData?.condition ?? '';
           break;
         }
         case 'For': {
           const [forData] = await queryCollection((_) =>
-            _.from({ f: forCollection }).where((_) => eq(_.f.nodeId, nodeIdBytes)).findOne(),
+            _.from({ f: forCollection })
+              .where((_) => eq(_.f.nodeId, nodeIdBytes))
+              .findOne(),
           );
           result.iterations = forData?.iterations;
           result.condition = forData?.condition ?? '';
@@ -798,7 +775,9 @@ const executeToolInternal = async (
         }
         case 'ForEach': {
           const [feData] = await queryCollection((_) =>
-            _.from({ fe: forEachCollection }).where((_) => eq(_.fe.nodeId, nodeIdBytes)).findOne(),
+            _.from({ fe: forEachCollection })
+              .where((_) => eq(_.fe.nodeId, nodeIdBytes))
+              .findOne(),
           );
           result.path = feData?.path ?? '';
           result.condition = feData?.condition ?? '';
@@ -810,7 +789,9 @@ const executeToolInternal = async (
           const httpIdBytes = parseUlid(node.httpId);
 
           const [httpData] = await queryCollection((_) =>
-            _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
+            _.from({ http: httpCollection })
+              .where((_) => eq(_.http.httpId, httpIdBytes))
+              .findOne(),
           );
 
           const searchParams = await queryCollection((_) =>
@@ -830,8 +811,15 @@ const executeToolInternal = async (
           );
 
           const HTTP_METHOD_NAMES: Record<number, string> = {
-            0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
-            5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
+            0: 'UNSPECIFIED',
+            1: 'GET',
+            2: 'POST',
+            3: 'PUT',
+            4: 'PATCH',
+            5: 'DELETE',
+            6: 'HEAD',
+            7: 'OPTIONS',
+            8: 'CONNECT',
           };
 
           result.httpId = node.httpId;
@@ -859,7 +847,9 @@ const executeToolInternal = async (
         }
         case 'Ai': {
           const [aiData] = await queryCollection((_) =>
-            _.from({ ai: aiCollection }).where((_) => eq(_.ai.nodeId, nodeIdBytes)).findOne(),
+            _.from({ ai: aiCollection })
+              .where((_) => eq(_.ai.nodeId, nodeIdBytes))
+              .findOne(),
           );
           result.prompt = aiData?.prompt ?? '';
           result.maxIterations = aiData?.maxIterations ?? 5;
@@ -867,7 +857,9 @@ const executeToolInternal = async (
         }
         case 'JavaScript': {
           const [jsData] = await queryCollection((_) =>
-            _.from({ js: jsCollection }).where((_) => eq(_.js.nodeId, nodeIdBytes)).findOne(),
+            _.from({ js: jsCollection })
+              .where((_) => eq(_.js.nodeId, nodeIdBytes))
+              .findOne(),
           );
           result.code = jsData?.code ?? '';
           break;
@@ -875,9 +867,7 @@ const executeToolInternal = async (
       }
 
       // Query execution data fresh from collection (not cached flowContext)
-      const allExecs = await queryCollection((_) =>
-        _.from({ exec: executionCollection }),
-      );
+      const allExecs = await queryCollection((_) => _.from({ exec: executionCollection }));
       const nodeExecs = allExecs
         .filter((e) => e.nodeId != null && Ulid.construct(e.nodeId).toCanonical() === nodeIdStr)
         .sort((a, b) => {
@@ -890,9 +880,12 @@ const executeToolInternal = async (
       if (nodeExecs.length > 0) {
         const latest = nodeExecs[0]!;
         result.execution = {
-          completedAt: latest.completedAt instanceof Date
-            ? latest.completedAt.toISOString()
-            : latest.completedAt ? String(latest.completedAt) : undefined,
+          completedAt:
+            latest.completedAt instanceof Date
+              ? latest.completedAt.toISOString()
+              : latest.completedAt
+                ? String(latest.completedAt)
+                : undefined,
           error: latest.error ?? undefined,
           state: FLOW_ITEM_STATE_NAMES[latest.state] ?? 'Unknown',
         };
@@ -1030,12 +1023,21 @@ const executeToolInternal = async (
           const httpIdBytes = parseUlid(node.httpId);
           const METHODS_WITH_BODY = new Set(['PATCH', 'POST', 'PUT']);
           const HTTP_METHOD_NAMES_LOCAL: Record<number, string> = {
-            0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
-            5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
+            0: 'UNSPECIFIED',
+            1: 'GET',
+            2: 'POST',
+            3: 'PUT',
+            4: 'PATCH',
+            5: 'DELETE',
+            6: 'HEAD',
+            7: 'OPTIONS',
+            8: 'CONNECT',
           };
 
           const [httpData] = await queryCollection((_) =>
-            _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
+            _.from({ http: httpCollection })
+              .where((_) => eq(_.http.httpId, httpIdBytes))
+              .findOne(),
           );
 
           const clearHttpBody = async () => {
@@ -1058,7 +1060,9 @@ const executeToolInternal = async (
             const methodStr = (args.method as string).toUpperCase();
             const method = HTTP_METHOD_MAP[methodStr];
             if (method === undefined) {
-              throw new Error(`Invalid HTTP method: "${args.method}". Valid: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`);
+              throw new Error(
+                `Invalid HTTP method: "${args.method}". Valid: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`,
+              );
             }
             effectiveMethod = methodStr;
             httpUpdates.method = method;
@@ -1084,7 +1088,12 @@ const executeToolInternal = async (
             for (const h of existingHeaders) {
               if (h.httpHeaderId) httpHeaderCollection.utils.delete({ httpHeaderId: h.httpHeaderId });
             }
-            const newHeaders = args.headers as { description?: string; enabled?: boolean; key: string; value?: string; }[];
+            const newHeaders = args.headers as {
+              description?: string;
+              enabled?: boolean;
+              key: string;
+              value?: string;
+            }[];
             for (let i = 0; i < newHeaders.length; i++) {
               const h = newHeaders[i]!;
               await httpHeaderCollection.utils.insert({
@@ -1106,9 +1115,15 @@ const executeToolInternal = async (
               _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
             );
             for (const sp of existingParams) {
-              if (sp.httpSearchParamId) httpSearchParamCollection.utils.delete({ httpSearchParamId: sp.httpSearchParamId });
+              if (sp.httpSearchParamId)
+                httpSearchParamCollection.utils.delete({ httpSearchParamId: sp.httpSearchParamId });
             }
-            const newParams = args.searchParams as { description?: string; enabled?: boolean; key: string; value?: string; }[];
+            const newParams = args.searchParams as {
+              description?: string;
+              enabled?: boolean;
+              key: string;
+              value?: string;
+            }[];
             for (let i = 0; i < newParams.length; i++) {
               const sp = newParams[i]!;
               await httpSearchParamCollection.utils.insert({
@@ -1129,8 +1144,8 @@ const executeToolInternal = async (
             if (!METHODS_WITH_BODY.has(effectiveMethod)) {
               throw new Error(
                 `Cannot set body for ${effectiveMethod} requests. ` +
-                'Only POST, PUT, and PATCH methods support a request body. ' +
-                'Either change the method first or remove the body.',
+                  'Only POST, PUT, and PATCH methods support a request body. ' +
+                  'Either change the method first or remove the body.',
               );
             }
           }
@@ -1169,7 +1184,7 @@ const executeToolInternal = async (
             for (const a of existingAsserts) {
               if (a.httpAssertId) httpAssertCollection.utils.delete({ httpAssertId: a.httpAssertId });
             }
-            const newAsserts = args.assertions as { enabled?: boolean; value: string; }[];
+            const newAsserts = args.assertions as { enabled?: boolean; value: string }[];
             for (let i = 0; i < newAsserts.length; i++) {
               const a = newAsserts[i]!;
               await httpAssertCollection.utils.insert({
@@ -1206,7 +1221,9 @@ const executeToolInternal = async (
 
       // --- Remove headers ---
       const removeHeaderIds = args.removeHeaderIds as string[] | undefined;
-      const addHeaders = args.addHeaders as { description?: string; enabled?: boolean; key: string; value?: string }[] | undefined;
+      const addHeaders = args.addHeaders as
+        | { description?: string; enabled?: boolean; key: string; value?: string }[]
+        | undefined;
 
       if (removeHeaderIds?.length) {
         const existingHeaders = await queryCollection((_) =>
@@ -1255,7 +1272,9 @@ const executeToolInternal = async (
 
       // --- Remove search params ---
       const removeSearchParamIds = args.removeSearchParamIds as string[] | undefined;
-      const addSearchParams = args.addSearchParams as { description?: string; enabled?: boolean; key: string; value?: string }[] | undefined;
+      const addSearchParams = args.addSearchParams as
+        | { description?: string; enabled?: boolean; key: string; value?: string }[]
+        | undefined;
 
       if (removeSearchParamIds?.length) {
         const existingSearchParams = await queryCollection((_) =>

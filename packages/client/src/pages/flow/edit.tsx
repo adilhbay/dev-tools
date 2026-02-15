@@ -99,7 +99,10 @@ export const FlowEditPage = () => {
                 <ActionBar />
 
                 {sidebar && (
-                  <XF.Panel className={tw`inset-y-0 w-80 border-l border-neutral bg-neutral-lowest`} position='top-right'>
+                  <XF.Panel
+                    className={tw`inset-y-0 w-80 border-l border-neutral bg-neutral-lowest`}
+                    position='top-right'
+                  >
                     {sidebar}
                   </XF.Panel>
                 )}
@@ -447,7 +450,11 @@ const ActionBar = () => {
         Add Node
       </Button>
 
-      <Button className={tw`px-1.5 py-1`} onPress={() => void setAgentPanelOpen?.((prev) => !prev)} variant='ghost dark'>
+      <Button
+        className={tw`px-1.5 py-1`}
+        onPress={() => void setAgentPanelOpen?.((prev) => !prev)}
+        variant='ghost dark'
+      >
         <FiCpu className={tw`size-5 text-on-inverse-low`} />
         AI Agent
       </Button>

@@ -68,12 +68,14 @@ function schemaToToolDefinition<A, I, R>(schema: Schema.Schema<A, I, R>): ToolDe
 
   const defs = jsonSchema.$defs;
   const defName = jsonSchema.$ref.replace('#/$defs/', '');
-  const def = defs[defName] as undefined | {
-    description?: string;
-    properties: Record<string, unknown>;
-    required?: string[];
-    type: string;
-  };
+  const def = defs[defName] as
+    | undefined
+    | {
+        description?: string;
+        properties: Record<string, unknown>;
+        required?: string[];
+        type: string;
+      };
 
   return {
     description: def?.description ?? '',
@@ -118,9 +120,8 @@ if (createHttpNodeDef) {
 
   if (params.properties['url']) {
     params.properties['url'] = {
-      ...params.properties['url'] as object,
-      description:
-        'The URL for the HTTP request. Supports {{variable}} interpolation, e.g. {{BASE_URL}}/api/users',
+      ...(params.properties['url'] as object),
+      description: 'The URL for the HTTP request. Supports {{variable}} interpolation, e.g. {{BASE_URL}}/api/users',
     };
   }
 }
@@ -156,7 +157,7 @@ const schemaMap: Record<string, Schema.Schema<unknown, unknown>> = Object.fromEn
 export function validateToolInput(
   toolName: string,
   input: unknown,
-): { data: unknown; success: true; } | { errors: string[]; success: false; } {
+): { data: unknown; success: true } | { errors: string[]; success: false } {
   const schema = schemaMap[toolName];
   if (!schema) {
     return { errors: [`Unknown tool: ${toolName}`], success: false };

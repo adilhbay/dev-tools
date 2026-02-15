@@ -153,11 +153,7 @@ export const ConditionExpression = Schema.String.pipe(
   Schema.annotations({
     description:
       'Boolean expression using expr-lang syntax. NEVER use {{}} template syntax. Access node outputs via NodeName.field (underscores replace spaces). When a JS node returns an array/primitive directly, it is wrapped as .result. Use len() for array length. ForEach nodes expose .item (current value) and .key (index). For For/ForEach nodes, this is the REQUIRED break condition - the loop exits early when this evaluates to true.',
-    examples: [
-      'Get_User.response.status == 200',
-      'ForEach_Loop.key >= 3',
-      'Counter.count >= 10',
-    ],
+    examples: ['Get_User.response.status == 200', 'ForEach_Loop.key >= 3', 'Counter.count >= 10'],
   }),
 );
 

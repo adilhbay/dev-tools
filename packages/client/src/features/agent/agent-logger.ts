@@ -3,8 +3,7 @@ const safeStringify = (value: unknown): string =>
   JSON.stringify(value, (_key: string, v: unknown) => (typeof v === 'bigint' ? v.toString() : v));
 
 /** Truncate a string to maxLen, appending '...[truncated]' if needed */
-const truncate = (s: string, maxLen = 2048): string =>
-  s.length <= maxLen ? s : s.slice(0, maxLen) + '...[truncated]';
+const truncate = (s: string, maxLen = 2048): string => (s.length <= maxLen ? s : s.slice(0, maxLen) + '...[truncated]');
 
 interface AgentLogIpc {
   cleanup: () => void;

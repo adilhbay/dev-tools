@@ -46,8 +46,7 @@ const HTTP_METHOD_NAMES: Record<number, string> = {
 };
 
 const escapeXml = (s: string): string =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-   .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
 export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
   const nodeCollection = useApiCollection(NodeCollectionSchema);
@@ -58,37 +57,27 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
   const httpCollection = useApiCollection(HttpCollectionSchema);
 
   const { data: nodesData } = useLiveQuery(
-    (_) =>
-      _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
+    (_) => _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
     [nodeCollection, flowId],
   );
 
   const { data: edgesData } = useLiveQuery(
-    (_) =>
-      _.from({ edge: edgeCollection }).where((_) => eq(_.edge.flowId, flowId)),
+    (_) => _.from({ edge: edgeCollection }).where((_) => eq(_.edge.flowId, flowId)),
     [edgeCollection, flowId],
   );
 
   const { data: variablesData } = useLiveQuery(
-    (_) =>
-      _.from({ variable: variableCollection }).where((_) =>
-        eq(_.variable.flowId, flowId),
-      ),
+    (_) => _.from({ variable: variableCollection }).where((_) => eq(_.variable.flowId, flowId)),
     [variableCollection, flowId],
   );
 
   // Get all node IDs from the current flow as a Set for efficient lookup
   const nodeIdSet = new Set(
-    (nodesData ?? [])
-      .filter((n) => n.nodeId != null)
-      .map((n) => Ulid.construct(n.nodeId).toCanonical()),
+    (nodesData ?? []).filter((n) => n.nodeId != null).map((n) => Ulid.construct(n.nodeId).toCanonical()),
   );
 
   // Get all executions - we'll filter in memory by node IDs
-  const { data: allExecutionsData } = useLiveQuery(
-    (_) => _.from({ exec: executionCollection }),
-    [executionCollection],
-  );
+  const { data: allExecutionsData } = useLiveQuery((_) => _.from({ exec: executionCollection }), [executionCollection]);
 
   // Filter executions to only those belonging to nodes in this flow
   const executionsData = (allExecutionsData ?? []).filter(
@@ -96,10 +85,7 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
   );
 
   // Get all nodeHttp mappings for HTTP nodes
-  const { data: nodeHttpData } = useLiveQuery(
-    (_) => _.from({ nodeHttp: nodeHttpCollection }),
-    [nodeHttpCollection],
-  );
+  const { data: nodeHttpData } = useLiveQuery((_) => _.from({ nodeHttp: nodeHttpCollection }), [nodeHttpCollection]);
 
   // Build a map of nodeId -> httpId for quick lookup
   const nodeHttpMap = new Map(
@@ -109,10 +95,7 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
   );
 
   // Get all HTTP requests to fetch their methods
-  const { data: httpData } = useLiveQuery(
-    (_) => _.from({ http: httpCollection }),
-    [httpCollection],
-  );
+  const { data: httpData } = useLiveQuery((_) => _.from({ http: httpCollection }), [httpCollection]);
 
   // Build a map of httpId -> method for quick lookup
   const httpMethodMap = new Map(
@@ -159,7 +142,7 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
 
   // Only keep the most recent execution per node to limit context size
   // Input/output are stored but will be truncated when accessed via getNodeOutput
-  const executionsByNode = new Map<string, typeof executionsData[0]>();
+  const executionsByNode = new Map<string, (typeof executionsData)[0]>();
   for (const e of executionsData ?? []) {
     if (e.nodeExecutionId == null) continue;
     const nodeIdStr = Ulid.construct(e.nodeId).toCanonical();
@@ -169,17 +152,16 @@ export const useFlowContext = (flowId: Uint8Array): FlowContextData => {
     }
   }
 
-  const executions: NodeExecutionInfo[] = Array.from(executionsByNode.values())
-    .map((e) => ({
-      completedAt: e.completedAt instanceof Date ? e.completedAt.toISOString() : e.completedAt,
-      error: e.error ?? undefined,
-      id: Ulid.construct(e.nodeExecutionId).toCanonical(),
-      input: e.input ?? undefined,
-      name: e.name,
-      nodeId: Ulid.construct(e.nodeId).toCanonical(),
-      output: e.output ?? undefined,
-      state: FLOW_ITEM_STATE_NAMES[e.state] ?? 'Idle',
-    }));
+  const executions: NodeExecutionInfo[] = Array.from(executionsByNode.values()).map((e) => ({
+    completedAt: e.completedAt instanceof Date ? e.completedAt.toISOString() : e.completedAt,
+    error: e.error ?? undefined,
+    id: Ulid.construct(e.nodeExecutionId).toCanonical(),
+    input: e.input ?? undefined,
+    name: e.name,
+    nodeId: Ulid.construct(e.nodeId).toCanonical(),
+    output: e.output ?? undefined,
+    state: FLOW_ITEM_STATE_NAMES[e.state] ?? 'Idle',
+  }));
 
   return {
     edges,
@@ -208,8 +190,14 @@ export const refreshFlowContext = async (
   flowId: Uint8Array,
   collections: FlowCollections,
 ): Promise<FlowContextData> => {
-  const { edgeCollection, executionCollection, httpCollection, nodeCollection, nodeHttpCollection, variableCollection } =
-    collections;
+  const {
+    edgeCollection,
+    executionCollection,
+    httpCollection,
+    nodeCollection,
+    nodeHttpCollection,
+    variableCollection,
+  } = collections;
 
   const nodesData = await queryCollection((_) =>
     _.from({ node: nodeCollection }).where((_) => eq(_.node.flowId, flowId)),
@@ -227,25 +215,19 @@ export const refreshFlowContext = async (
     nodesData.filter((n) => n.nodeId != null).map((n) => Ulid.construct(n.nodeId).toCanonical()),
   );
 
-  const allExecutionsData = await queryCollection((_) =>
-    _.from({ exec: executionCollection }),
-  );
+  const allExecutionsData = await queryCollection((_) => _.from({ exec: executionCollection }));
   const executionsData = allExecutionsData.filter(
     (e) => e.nodeId != null && nodeIdSet.has(Ulid.construct(e.nodeId).toCanonical()),
   );
 
-  const nodeHttpData = await queryCollection((_) =>
-    _.from({ nodeHttp: nodeHttpCollection }),
-  );
+  const nodeHttpData = await queryCollection((_) => _.from({ nodeHttp: nodeHttpCollection }));
   const nodeHttpMap = new Map(
     nodeHttpData
       .filter((nh) => nh.nodeId != null && nh.httpId != null)
       .map((nh) => [Ulid.construct(nh.nodeId).toCanonical(), Ulid.construct(nh.httpId).toCanonical()]),
   );
 
-  const httpData = await queryCollection((_) =>
-    _.from({ http: httpCollection }),
-  );
+  const httpData = await queryCollection((_) => _.from({ http: httpCollection }));
   const httpMethodMap = new Map(
     httpData
       .filter((h) => h.httpId != null)
@@ -318,7 +300,6 @@ export const refreshFlowContext = async (
   };
 };
 
-
 /**
  * Detect orphan nodes that are not reachable from ManualStart via BFS.
  * Reusable by both the system prompt builder and the post-execution validation loop.
@@ -364,14 +345,10 @@ export const detectDeadEndNodes = (
   const hasIncoming = new Set(edges.map((e) => e.targetId));
 
   // Dead-ends: non-start nodes with incoming edges but no outgoing edges
-  const deadEnds = nodes.filter(
-    (n) => n.kind !== 'ManualStart' && hasIncoming.has(n.id) && !hasOutgoing.has(n.id),
-  );
+  const deadEnds = nodes.filter((n) => n.kind !== 'ManualStart' && hasIncoming.has(n.id) && !hasOutgoing.has(n.id));
 
   // Interior nodes: non-start nodes that DO have outgoing edges (flow has depth)
-  const interiorNodes = nodes.filter(
-    (n) => n.kind !== 'ManualStart' && hasOutgoing.has(n.id),
-  );
+  const interiorNodes = nodes.filter((n) => n.kind !== 'ManualStart' && hasOutgoing.has(n.id));
 
   // Only flag when: many dead-ends AND flow has interior depth
   if (deadEnds.length > 3 && interiorNodes.length > 0) {
@@ -488,7 +465,9 @@ const buildXmlCompactSummary = (context: FlowContextData): string => {
   }
 
   if (endpoints.length > 5) {
-    lines.push(`  <!-- WARNING: ${endpoints.length} dead-end nodes — ensure all parallel branches fan-in to their downstream node using connectChain -->`);
+    lines.push(
+      `  <!-- WARNING: ${endpoints.length} dead-end nodes — ensure all parallel branches fan-in to their downstream node using connectChain -->`,
+    );
   }
 
   lines.push('</flow-update>');
@@ -563,4 +542,3 @@ When a value (base URL, API key) appears in multiple nodes, create a variable wi
 Node names use underscores for spaces: "Get User" → Get_User in references.
 </variable-syntax>`;
 };
-

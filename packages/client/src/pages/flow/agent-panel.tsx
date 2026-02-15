@@ -38,7 +38,10 @@ const formatToolCall = (name: string, active: boolean): [verb: string, label: st
   const ov = TOOL_OVERRIDES[name];
   if (ov) return [active ? ov[0] : ov[1], ov[2]];
 
-  const words = name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').split(' ');
+  const words = name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(' ');
   const pair = VERB_PAIRS[words[0] ?? ''];
   const verb = pair ? (active ? pair[0] : pair[1]) : active ? 'Running' : 'Ran';
   const rest = (pair ? words.slice(1) : words)
@@ -64,7 +67,11 @@ export const AgentPanel = () => {
     (s) => s.nodes.filter((n) => n.selected).map((n) => n.id),
     (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
   );
-  const { cancel, clearMessages, error, isLoading, messages, sendMessage, streamingContent } = useAgentChat({ apiKey, flowId, selectedNodeIds });
+  const { cancel, clearMessages, error, isLoading, messages, sendMessage, streamingContent } = useAgentChat({
+    apiKey,
+    flowId,
+    selectedNodeIds,
+  });
 
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -105,11 +112,11 @@ export const AgentPanel = () => {
     el.style.height = `${el.scrollHeight}px`;
   };
 
-    const handleSubmit = (e?: FormEvent) => {
-      e?.preventDefault();
-      if (!input.trim() || isLoading) return;
-      void sendMessage(input.trim());
-      setInput('');
+  const handleSubmit = (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!input.trim() || isLoading) return;
+    void sendMessage(input.trim());
+    setInput('');
     // Reset textarea height after clearing
     requestAnimationFrame(() => {
       if (textareaRef.current) {
@@ -128,12 +135,16 @@ export const AgentPanel = () => {
   return (
     <div className={tw`flex h-full flex-col overflow-hidden bg-(--surface-1) text-sm text-(--text-primary)`}>
       {/* Header */}
-      <div className={tw`
+      <div
+        className={tw`
         mx-2 mt-2 flex items-center gap-2 rounded-[4px] border border-(--border) bg-(--surface-4) px-3 py-1.5
-      `}>
-        <div className={tw`
+      `}
+      >
+        <div
+          className={tw`
           flex flex-1 items-center gap-2 truncate text-sm font-medium tracking-[0.28px] text-(--text-primary)
-        `}>
+        `}
+        >
           Agent
         </div>
 
@@ -212,7 +223,11 @@ export const AgentPanel = () => {
               />
             </div>
             <div className={tw`flex justify-end pt-1.5`}>
-              {isLoading ? <AbortButton onClick={cancel} /> : <SendButton disabled={!input.trim()} onClick={handleSubmit} />}
+              {isLoading ? (
+                <AbortButton onClick={cancel} />
+              ) : (
+                <SendButton disabled={!input.trim()} onClick={handleSubmit} />
+              )}
             </div>
           </div>
         </>
@@ -320,7 +335,16 @@ const ApiKeyPrompt = ({ onSubmit }: { onSubmit: (key: string) => void }) => {
       <div className={tw`text-center text-sm text-(--text-muted)`}>
         <p className={tw`font-medium text-(--text-primary)`}>OpenRouter API Key Required</p>
         <p className={tw`mt-1`}>
-          Enter your <a className={tw`text-(--brand-secondary) underline`} href='https://openrouter.ai/keys' rel='noreferrer' target='_blank'>OpenRouter API key</a> to use the agent.
+          Enter your{' '}
+          <a
+            className={tw`text-(--brand-secondary) underline`}
+            href='https://openrouter.ai/keys'
+            rel='noreferrer'
+            target='_blank'
+          >
+            OpenRouter API key
+          </a>{' '}
+          to use the agent.
         </p>
       </div>
       <div className={tw`flex w-full gap-2`}>
@@ -361,27 +385,33 @@ const ApiKeyPrompt = ({ onSubmit }: { onSubmit: (key: string) => void }) => {
 const StreamingIndicator = () => (
   <div className={tw`flex h-5 items-center`}>
     <div className={tw`flex space-x-0.5`}>
-      <div className={tw`
+      <div
+        className={tw`
         size-1 animate-bounce rounded-full bg-(--text-muted)
 
         [animation-delay:0ms]
 
         [animation-duration:1.2s]
-      `} />
-      <div className={tw`
+      `}
+      />
+      <div
+        className={tw`
         size-1 animate-bounce rounded-full bg-(--text-muted)
 
         [animation-delay:150ms]
 
         [animation-duration:1.2s]
-      `} />
-      <div className={tw`
+      `}
+      />
+      <div
+        className={tw`
         size-1 animate-bounce rounded-full bg-(--text-muted)
 
         [animation-delay:300ms]
 
         [animation-duration:1.2s]
-      `} />
+      `}
+      />
     </div>
   </div>
 );
@@ -423,13 +453,9 @@ const ThinkingBlock = () => {
           </span>
         </span>
         <span className={tw`text-xs text-(--text-subtle)`}>{elapsed}s</span>
-        <FiChevronUp
-          className={tw`size-3 text-(--text-subtle) transition-transform ${expanded ? '' : 'rotate-180'}`}
-        />
+        <FiChevronUp className={tw`size-3 text-(--text-subtle) transition-transform ${expanded ? '' : 'rotate-180'}`} />
       </button>
-      <div
-        className={tw`overflow-hidden transition-all duration-200 ${expanded ? 'max-h-[150px]' : 'max-h-0'}`}
-      >
+      <div className={tw`overflow-hidden transition-all duration-200 ${expanded ? 'max-h-[150px]' : 'max-h-0'}`}>
         <div className={tw`pt-1`}>
           <StreamingIndicator />
         </div>
@@ -445,20 +471,30 @@ const StreamingMessage = ({ content }: { content: string }) => (
         code: ({ children, className }) => {
           const isBlock = className?.startsWith('language-');
           return isBlock ? (
-            <pre className={tw`
+            <pre
+              className={tw`
               my-1 overflow-x-auto rounded-[4px] border border-(--border-1) bg-(--surface-1) p-2 text-xs
               text-(--text-secondary)
-            `}>
+            `}
+            >
               <code>{children}</code>
             </pre>
           ) : (
-            <code className={tw`
+            <code
+              className={tw`
               break-all rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
               text-(--text-primary)
-            `}>{children}</code>
+            `}
+            >
+              {children}
+            </code>
           );
         },
-        p: ({ children }) => <p className={tw`mb-1.5 break-words text-sm leading-[1.4] text-(--text-primary) [overflow-wrap:anywhere]`}>{children}</p>,
+        p: ({ children }) => (
+          <p className={tw`mb-1.5 break-words text-sm leading-[1.4] text-(--text-primary) [overflow-wrap:anywhere]`}>
+            {children}
+          </p>
+        ),
         pre: ({ children }) => <>{children}</>,
       }}
       remarkPlugins={[remarkGfm]}
@@ -469,7 +505,7 @@ const StreamingMessage = ({ content }: { content: string }) => (
   </div>
 );
 
-const SendButton = ({ disabled, onClick }: { disabled: boolean; onClick: () => void; }) => (
+const SendButton = ({ disabled, onClick }: { disabled: boolean; onClick: () => void }) => (
   <button
     className={tw`
       flex size-[22px] items-center justify-center rounded-full bg-(--text-primary) text-(--text-inverse) transition-colors
@@ -502,19 +538,15 @@ const AbortButton = ({ onClick }: { onClick: () => void }) => (
   </button>
 );
 
-const ToolCallItem = ({ isActive, toolCall: tc }: { isActive: boolean; toolCall: ToolCall; }) => {
+const ToolCallItem = ({ isActive, toolCall: tc }: { isActive: boolean; toolCall: ToolCall }) => {
   const [verb, label] = formatToolCall(tc.name, isActive);
   const brief = getToolBrief(tc.arguments);
   const fullText = brief ? `${verb} ${label} · ${brief}` : `${verb} ${label}`;
 
   return (
     <div className={tw`relative w-full overflow-hidden text-sm font-medium text-ellipsis whitespace-nowrap`}>
-      <span className={tw`text-(--text-primary) dark:text-(--text-tertiary)`}>
-        {verb}
-      </span>{' '}
-      <span className={tw`text-(--text-muted)`}>
-        {brief ? `${label} · ${brief}` : label}
-      </span>
+      <span className={tw`text-(--text-primary) dark:text-(--text-tertiary)`}>{verb}</span>{' '}
+      <span className={tw`text-(--text-muted)`}>{brief ? `${label} · ${brief}` : label}</span>
       {isActive && (
         <span
           aria-hidden
@@ -574,20 +606,32 @@ const TerminalMessage = ({
                 code: ({ children, className }) => {
                   const isBlock = className?.startsWith('language-');
                   return isBlock ? (
-                    <pre className={tw`
+                    <pre
+                      className={tw`
                       my-1 overflow-x-auto rounded-[4px] border border-(--border-1) bg-(--surface-1) p-2 text-xs
                       text-(--text-secondary)
-                    `}>
+                    `}
+                    >
                       <code>{children}</code>
                     </pre>
                   ) : (
-                    <code className={tw`
+                    <code
+                      className={tw`
                       break-all rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
                       text-(--text-primary)
-                    `}>{children}</code>
+                    `}
+                    >
+                      {children}
+                    </code>
                   );
                 },
-                p: ({ children }) => <p className={tw`mb-1.5 break-words text-sm leading-[1.4] text-(--text-primary) [overflow-wrap:anywhere]`}>{children}</p>,
+                p: ({ children }) => (
+                  <p
+                    className={tw`mb-1.5 break-words text-sm leading-[1.4] text-(--text-primary) [overflow-wrap:anywhere]`}
+                  >
+                    {children}
+                  </p>
+                ),
                 pre: ({ children }) => <>{children}</>,
               }}
               remarkPlugins={[remarkGfm]}
@@ -622,34 +666,54 @@ const TerminalMessage = ({
             </a>
           ),
           blockquote: ({ children }) => (
-            <blockquote className={tw`
+            <blockquote
+              className={tw`
               my-1 break-words border-l-2 border-(--border-1) bg-(--surface-4) px-2 py-1 text-(--text-tertiary) [overflow-wrap:anywhere]
-            `}>
+            `}
+            >
               {children}
             </blockquote>
           ),
           code: ({ children, className }) => {
             const isBlock = className?.startsWith('language-');
             return isBlock ? (
-              <pre className={tw`
+              <pre
+                className={tw`
                 my-1 overflow-x-auto rounded-[4px] border border-(--border-1) bg-(--surface-1) p-2 text-xs
                 text-(--text-secondary)
-              `}>
+              `}
+              >
                 <code>{children}</code>
               </pre>
             ) : (
-              <code className={tw`
+              <code
+                className={tw`
                 break-all rounded border border-(--border-1) bg-(--surface-1) px-1 py-0.5 font-mono text-[0.85em]
                 text-(--text-primary)
-              `}>{children}</code>
+              `}
+              >
+                {children}
+              </code>
             );
           },
-          h1: ({ children }) => <div className={tw`my-1 text-base font-semibold text-(--text-primary)`}>{children}</div>,
-          h2: ({ children }) => <div className={tw`my-1 text-[15px] font-semibold text-(--text-primary)`}>{children}</div>,
+          h1: ({ children }) => (
+            <div className={tw`my-1 text-base font-semibold text-(--text-primary)`}>{children}</div>
+          ),
+          h2: ({ children }) => (
+            <div className={tw`my-1 text-[15px] font-semibold text-(--text-primary)`}>{children}</div>
+          ),
           h3: ({ children }) => <div className={tw`my-1 text-sm font-semibold text-(--text-primary)`}>{children}</div>,
-          li: ({ children }) => <li className={tw`break-words text-sm leading-[1.4] text-(--text-secondary) [overflow-wrap:anywhere]`}>{children}</li>,
+          li: ({ children }) => (
+            <li className={tw`break-words text-sm leading-[1.4] text-(--text-secondary) [overflow-wrap:anywhere]`}>
+              {children}
+            </li>
+          ),
           ol: ({ children }) => <ol className={tw`my-1 list-decimal space-y-0.5 pl-5`}>{children}</ol>,
-          p: ({ children }) => <p className={tw`mb-1.5 break-words text-sm leading-[1.4] text-(--text-primary) [overflow-wrap:anywhere]`}>{children}</p>,
+          p: ({ children }) => (
+            <p className={tw`mb-1.5 break-words text-sm leading-[1.4] text-(--text-primary) [overflow-wrap:anywhere]`}>
+              {children}
+            </p>
+          ),
           pre: ({ children }) => <>{children}</>,
           strong: ({ children }) => <strong className={tw`font-semibold text-(--text-primary)`}>{children}</strong>,
           table: ({ children }) => (
@@ -661,14 +725,14 @@ const TerminalMessage = ({
             <td className={tw`break-words px-2 py-1 text-(--text-secondary) [overflow-wrap:anywhere]`}>{children}</td>
           ),
           th: ({ children }) => (
-            <th className={tw`break-words px-2 py-1 text-left text-xs font-semibold text-(--text-primary) [overflow-wrap:anywhere]`}>{children}</th>
+            <th
+              className={tw`break-words px-2 py-1 text-left text-xs font-semibold text-(--text-primary) [overflow-wrap:anywhere]`}
+            >
+              {children}
+            </th>
           ),
-          thead: ({ children }) => (
-            <thead className={tw`border-b border-(--border-1)`}>{children}</thead>
-          ),
-          tr: ({ children }) => (
-            <tr className={tw`border-b border-(--border-1) last:border-0`}>{children}</tr>
-          ),
+          thead: ({ children }) => <thead className={tw`border-b border-(--border-1)`}>{children}</thead>,
+          tr: ({ children }) => <tr className={tw`border-b border-(--border-1) last:border-0`}>{children}</tr>,
           ul: ({ children }) => <ul className={tw`my-1 list-disc space-y-0.5 pl-5`}>{children}</ul>,
         }}
         remarkPlugins={[remarkGfm]}
@@ -678,5 +742,3 @@ const TerminalMessage = ({
     </div>
   );
 };
-
-

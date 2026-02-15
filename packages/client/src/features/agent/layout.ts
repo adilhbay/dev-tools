@@ -47,8 +47,7 @@ const buildOutgoingAdjacency = (edges: EdgeInfo[]): Map<string, string[]> => {
   return adj;
 };
 
-const findStartNode = (nodes: NodeInfo[]): NodeInfo | undefined =>
-  nodes.find((n) => n.kind === 'ManualStart');
+const findStartNode = (nodes: NodeInfo[]): NodeInfo | undefined => nodes.find((n) => n.kind === 'ManualStart');
 
 /**
  * Layout computes node positions using BFS-based level assignment.
@@ -118,14 +117,12 @@ export const layout = (
     if (nodesAtLevel.length === 0) continue;
 
     // Calculate primary axis position (depth direction)
-    let primaryPos =
-      config.orientation === 'horizontal' ? config.startX : config.startY;
+    let primaryPos = config.orientation === 'horizontal' ? config.startX : config.startY;
     primaryPos += level * config.spacingPrimary;
 
     // Calculate secondary axis positions (centered around start)
     const totalSecondary = (nodesAtLevel.length - 1) * config.spacingSecondary;
-    let startSecondary =
-      config.orientation === 'horizontal' ? config.startY : config.startX;
+    let startSecondary = config.orientation === 'horizontal' ? config.startY : config.startX;
     startSecondary -= totalSecondary / 2;
 
     for (let i = 0; i < nodesAtLevel.length; i++) {
@@ -133,9 +130,7 @@ export const layout = (
       const secondaryPos = startSecondary + i * config.spacingSecondary;
 
       const pos: Position =
-        config.orientation === 'horizontal'
-          ? { x: primaryPos, y: secondaryPos }
-          : { x: secondaryPos, y: primaryPos };
+        config.orientation === 'horizontal' ? { x: primaryPos, y: secondaryPos } : { x: secondaryPos, y: primaryPos };
 
       positions.set(nodeId, pos);
     }

@@ -29,7 +29,15 @@ import { useApiCollection } from '~/shared/api';
 import { queryCollection } from '~/shared/lib';
 import { routes } from '~/shared/routes';
 import { AgentLogger } from './agent-logger';
-import { buildCompactStateSummary, buildSystemPrompt, buildXmlValidationMessage, detectDeadEndNodes, detectOrphanNodes, refreshFlowContext, useFlowContext } from './context-builder';
+import {
+  buildCompactStateSummary,
+  buildSystemPrompt,
+  buildXmlValidationMessage,
+  detectDeadEndNodes,
+  detectOrphanNodes,
+  refreshFlowContext,
+  useFlowContext,
+} from './context-builder';
 import { defaultHorizontalConfig, layoutNodes } from './layout';
 import { type Collections, executeToolCall, type ToolExecutorContext } from './tool-executor';
 import { allToolSchemas } from './tool-schemas';
@@ -66,7 +74,7 @@ const safeStringify = (value: unknown): string =>
 interface StreamedMessage {
   content: null | string;
   tool_calls?: {
-    function: { arguments: string; name: string; };
+    function: { arguments: string; name: string };
     id: string;
     type: 'function';
   }[];
@@ -88,7 +96,7 @@ const consumeStream = async (
 ): Promise<{ message: StreamedMessage; meta: StreamMeta }> => {
   let content = '';
   let hasContent = false;
-  const toolCallsMap = new Map<number, { arguments: string; id: string; name: string; }>();
+  const toolCallsMap = new Map<number, { arguments: string; id: string; name: string }>();
   let finishReason: null | string | undefined = null;
   let usage: unknown = undefined;
 
@@ -219,14 +227,15 @@ const applyLayoutToFlow = async (
 const clientToolSchemas: ToolSchema[] = [
   {
     description:
-      'Inspect a node\'s full config and execution state. Returns type-specific config (HTTP: url/method/headers/params/body/assertions, JS: code, Condition: expression, For: iterations/condition, ForEach: path/condition) plus execution state/error. ' +
+      "Inspect a node's full config and execution state. Returns type-specific config (HTTP: url/method/headers/params/body/assertions, JS: code, Condition: expression, For: iterations/condition, ForEach: path/condition) plus execution state/error. " +
       'Set includeOutput: true to also get execution input/output payloads (can be large).',
     name: 'inspectNode',
     parameters: {
       additionalProperties: false,
       properties: {
         includeOutput: {
-          description: 'Include execution input/output payloads (default: false). Only use when you need to see actual request/response data.',
+          description:
+            'Include execution input/output payloads (default: false). Only use when you need to see actual request/response data.',
           type: 'boolean',
         },
         nodeId: { description: 'The node ID to inspect', type: 'string' },
@@ -247,7 +256,7 @@ const clientToolSchemas: ToolSchema[] = [
   },
   {
     description:
-      'Update any node\'s configuration in a single call. Provide nodeId and only the fields to change — unspecified fields stay unchanged. ' +
+      "Update any node's configuration in a single call. Provide nodeId and only the fields to change — unspecified fields stay unchanged. " +
       'Base fields (name) work on any node. Type-specific fields: ' +
       'Ai: prompt, maxIterations. Condition: condition. For: iterations, condition (break), errorHandling. ' +
       'ForEach: path, condition (break), errorHandling. JS: code. ' +
@@ -269,7 +278,8 @@ const clientToolSchemas: ToolSchema[] = [
           type: 'array',
         },
         body: {
-          description: 'Raw body content (JSON string). Set to null to clear. (HTTP only) Supports {{variable}} interpolation.',
+          description:
+            'Raw body content (JSON string). Set to null to clear. (HTTP only) Supports {{variable}} interpolation.',
           type: ['string', 'null'],
         },
         code: {
@@ -277,7 +287,8 @@ const clientToolSchemas: ToolSchema[] = [
           type: 'string',
         },
         condition: {
-          description: 'For Condition nodes: branching expression. For For/ForEach: break condition (expr-lang syntax).',
+          description:
+            'For Condition nodes: branching expression. For For/ForEach: break condition (expr-lang syntax).',
           type: 'string',
         },
         errorHandling: {
@@ -291,7 +302,10 @@ const clientToolSchemas: ToolSchema[] = [
             properties: {
               enabled: { type: 'boolean' },
               key: { type: 'string' },
-              value: { description: 'Supports {{variable}} interpolation, e.g. Bearer {{Auth.response.body.token}}', type: 'string' },
+              value: {
+                description: 'Supports {{variable}} interpolation, e.g. Bearer {{Auth.response.body.token}}',
+                type: 'string',
+              },
             },
             required: ['key'],
             type: 'object',
@@ -337,7 +351,11 @@ const clientToolSchemas: ToolSchema[] = [
           },
           type: 'array',
         },
-        url: { description: 'Request URL (HTTP nodes only). Supports {{variable}} interpolation, e.g. {{BASE_URL}}/api/users/{{id}}', type: 'string' },
+        url: {
+          description:
+            'Request URL (HTTP nodes only). Supports {{variable}} interpolation, e.g. {{BASE_URL}}/api/users/{{id}}',
+          type: 'string',
+        },
       },
       required: ['nodeId'],
       type: 'object',
@@ -728,13 +746,7 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
               const tr = toolResults[i]!;
               const tc = toolCalls[i]!;
               const elapsed = performance.now() - toolCallTimers[i]!;
-              logger.logToolCallEnd(
-                tc.id,
-                tc.name,
-                elapsed,
-                tr.error ?? safeStringify(tr.result),
-                tr.error,
-              );
+              logger.logToolCallEnd(tc.id, tc.name, elapsed, tr.error ?? safeStringify(tr.result), tr.error);
             }
 
             // Apply layout and refresh context after mutations
@@ -859,7 +871,10 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
 
           const orphans = detectOrphanNodes(nodeInfos, edgeInfos);
           const deadEnds = orphans.length === 0 ? detectDeadEndNodes(nodeInfos, edgeInfos) : [];
-          logger.logValidation(orphans.length, orphans.map((n) => n.name));
+          logger.logValidation(
+            orphans.length,
+            orphans.map((n) => n.name),
+          );
           if (orphans.length === 0 && deadEnds.length === 0) break;
 
           validationRetries++;
@@ -931,7 +946,29 @@ export const useAgentChat = ({ apiKey, flowId, selectedNodeIds }: UseAgentChatOp
         }
       }
     },
-    [apiKey, flowId, transport, nodeCollection, edgeCollection, variableCollection, aiCollection, jsCollection, conditionCollection, forCollection, forEachCollection, nodeHttpCollection, httpCollection, httpSearchParamCollection, httpHeaderCollection, httpBodyRawCollection, httpAssertCollection, executionCollection, fileCollection, flowCollection, workspaceId],
+    [
+      apiKey,
+      flowId,
+      transport,
+      nodeCollection,
+      edgeCollection,
+      variableCollection,
+      aiCollection,
+      jsCollection,
+      conditionCollection,
+      forCollection,
+      forEachCollection,
+      nodeHttpCollection,
+      httpCollection,
+      httpSearchParamCollection,
+      httpHeaderCollection,
+      httpBodyRawCollection,
+      httpAssertCollection,
+      executionCollection,
+      fileCollection,
+      flowCollection,
+      workspaceId,
+    ],
   );
 
   const clearMessages = useCallback(() => {

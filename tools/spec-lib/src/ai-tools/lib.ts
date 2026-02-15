@@ -94,4 +94,3 @@ function mutationTool({ program }: DecoratorContext, target: Model, ...tools: Ra
   });
   mutationTools(program).set(target, resolved);
 }
-

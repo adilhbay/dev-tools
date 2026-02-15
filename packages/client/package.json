@@ -57,11 +57,11 @@
     "react-error-boundary": "catalog:",
     "react-icons": "catalog:",
     "react-markdown": "catalog:",
-    "remark-gfm": "catalog:",
     "react-resizable-panels": "catalog:",
     "react-scan": "catalog:",
     "react-stately": "catalog:",
     "react-timeago": "catalog:",
+    "remark-gfm": "catalog:",
     "tailwind-merge": "catalog:",
     "tailwind-variants": "catalog:",
     "use-debounce": "catalog:"
