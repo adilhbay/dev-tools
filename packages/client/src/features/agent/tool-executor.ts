@@ -132,6 +132,7 @@ const MUTATION_TOOLS = new Set([
   'createJsNode',
   'deleteNode',
   'disconnectNodes',
+  'patchHttpNode',
   'updateNode',
 ]);
 
@@ -1101,6 +1102,34 @@ const executeToolInternal = async (
             updatedFields.push('searchParams');
           }
 
+          // Method-body guard: validate body is only set for methods that support it
+          if (args.body !== undefined && args.body !== null) {
+            const METHODS_WITH_BODY = new Set(['PATCH', 'POST', 'PUT']);
+            let effectiveMethod: string;
+
+            if (args.method !== undefined) {
+              effectiveMethod = (args.method as string).toUpperCase();
+            } else {
+              // Query current method
+              const [httpData] = await queryCollection((_) =>
+                _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
+              );
+              const HTTP_METHOD_NAMES_LOCAL: Record<number, string> = {
+                0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
+                5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
+              };
+              effectiveMethod = HTTP_METHOD_NAMES_LOCAL[httpData?.method ?? 0] ?? 'UNSPECIFIED';
+            }
+
+            if (!METHODS_WITH_BODY.has(effectiveMethod)) {
+              throw new Error(
+                `Cannot set body for ${effectiveMethod} requests. ` +
+                'Only POST, PUT, and PATCH methods support a request body. ' +
+                'Either change the method first or remove the body.',
+              );
+            }
+          }
+
           // Set or clear body
           if (args.body !== undefined) {
             const body = args.body as null | string;
@@ -1156,6 +1185,111 @@ const executeToolInternal = async (
       }
 
       return { success: true, updatedFields };
+    }
+
+    case 'patchHttpNode': {
+      const nodeIdStr = args.nodeId as string;
+      const node = flowContext.nodes.find((n) => n.id === nodeIdStr);
+      if (!node) throw new Error(`Node not found: ${nodeIdStr}`);
+      if (node.kind !== 'HTTP') throw new Error(`patchHttpNode only works on HTTP nodes, got: ${node.kind}`);
+      if (!node.httpId) throw new Error(`HTTP node "${node.name}" has no associated HTTP request`);
+
+      const httpIdBytes = parseUlid(node.httpId);
+      const patchedFields: string[] = [];
+
+      // --- Remove headers ---
+      const removeHeaderIds = args.removeHeaderIds as string[] | undefined;
+      if (removeHeaderIds?.length) {
+        for (const id of removeHeaderIds) {
+          httpHeaderCollection.utils.delete({ httpHeaderId: parseUlid(id) });
+        }
+        patchedFields.push(`removedHeaders(${removeHeaderIds.length})`);
+      }
+
+      // --- Add headers ---
+      const addHeaders = args.addHeaders as { description?: string; enabled?: boolean; key: string; value?: string }[] | undefined;
+      if (addHeaders?.length) {
+        const existing = await queryCollection((_) =>
+          _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
+        );
+        let nextOrder = existing.length;
+        for (const h of addHeaders) {
+          await httpHeaderCollection.utils.insert({
+            description: h.description ?? '',
+            enabled: h.enabled ?? true,
+            httpHeaderId: Ulid.generate().bytes,
+            httpId: httpIdBytes,
+            key: h.key,
+            order: nextOrder++,
+            value: h.value ?? '',
+          });
+        }
+        patchedFields.push(`addedHeaders(${addHeaders.length})`);
+      }
+
+      // --- Remove search params ---
+      const removeSearchParamIds = args.removeSearchParamIds as string[] | undefined;
+      if (removeSearchParamIds?.length) {
+        for (const id of removeSearchParamIds) {
+          httpSearchParamCollection.utils.delete({ httpSearchParamId: parseUlid(id) });
+        }
+        patchedFields.push(`removedSearchParams(${removeSearchParamIds.length})`);
+      }
+
+      // --- Add search params ---
+      const addSearchParams = args.addSearchParams as { description?: string; enabled?: boolean; key: string; value?: string }[] | undefined;
+      if (addSearchParams?.length) {
+        const existing = await queryCollection((_) =>
+          _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
+        );
+        let nextOrder = existing.length;
+        for (const sp of addSearchParams) {
+          await httpSearchParamCollection.utils.insert({
+            description: sp.description ?? '',
+            enabled: sp.enabled ?? true,
+            httpId: httpIdBytes,
+            httpSearchParamId: Ulid.generate().bytes,
+            key: sp.key,
+            order: nextOrder++,
+            value: sp.value ?? '',
+          });
+        }
+        patchedFields.push(`addedSearchParams(${addSearchParams.length})`);
+      }
+
+      // --- Remove assertions ---
+      const removeAssertionIds = args.removeAssertionIds as string[] | undefined;
+      if (removeAssertionIds?.length) {
+        for (const id of removeAssertionIds) {
+          httpAssertCollection.utils.delete({ httpAssertId: parseUlid(id) });
+        }
+        patchedFields.push(`removedAssertions(${removeAssertionIds.length})`);
+      }
+
+      // --- Add assertions ---
+      const addAssertions = args.addAssertions as { enabled?: boolean; value: string }[] | undefined;
+      if (addAssertions?.length) {
+        const existing = await queryCollection((_) =>
+          _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
+        );
+        let nextOrder = existing.length;
+        for (const a of addAssertions) {
+          await httpAssertCollection.utils.insert({
+            enabled: a.enabled ?? true,
+            httpAssertId: Ulid.generate().bytes,
+            httpId: httpIdBytes,
+            order: nextOrder++,
+            value: a.value,
+          });
+        }
+        patchedFields.push(`addedAssertions(${addAssertions.length})`);
+      }
+
+      if (patchedFields.length === 0) {
+        return { message: 'No patch operations provided', success: false };
+      }
+
+      return { patchedFields, success: true };
     }
 
     case 'updateVariable': {

@@ -269,7 +269,7 @@ const clientToolSchemas: ToolSchema[] = [
           type: 'array',
         },
         body: {
-          description: 'Raw body content (JSON string). Set to null to clear. (HTTP only)',
+          description: 'Raw body content (JSON string). Set to null to clear. (HTTP only) Supports {{variable}} interpolation.',
           type: ['string', 'null'],
         },
         code: {
@@ -291,7 +291,7 @@ const clientToolSchemas: ToolSchema[] = [
             properties: {
               enabled: { type: 'boolean' },
               key: { type: 'string' },
-              value: { type: 'string' },
+              value: { description: 'Supports {{variable}} interpolation, e.g. Bearer {{Auth.response.body.token}}', type: 'string' },
             },
             required: ['key'],
             type: 'object',
@@ -330,14 +330,83 @@ const clientToolSchemas: ToolSchema[] = [
             properties: {
               enabled: { type: 'boolean' },
               key: { type: 'string' },
-              value: { type: 'string' },
+              value: { description: 'Supports {{variable}} interpolation.', type: 'string' },
             },
             required: ['key'],
             type: 'object',
           },
           type: 'array',
         },
-        url: { description: 'Request URL (HTTP nodes only)', type: 'string' },
+        url: { description: 'Request URL (HTTP nodes only). Supports {{variable}} interpolation, e.g. {{BASE_URL}}/api/users/{{id}}', type: 'string' },
+      },
+      required: ['nodeId'],
+      type: 'object',
+    },
+  },
+  {
+    description:
+      'Incrementally add or remove headers, query params, or assertions on an HTTP node without replacing the full set. ' +
+      'Use this when modifying individual items. For full replacement, use updateNode instead.',
+    name: 'patchHttpNode',
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        nodeId: { description: 'The HTTP node ID to patch', type: 'string' },
+        addHeaders: {
+          description: 'Headers to append. Supports {{variable}} interpolation in values.',
+          items: {
+            properties: {
+              description: { type: 'string' },
+              enabled: { type: 'boolean' },
+              key: { type: 'string' },
+              value: { description: 'Supports {{variable}} interpolation', type: 'string' },
+            },
+            required: ['key'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        removeHeaderIds: {
+          description: 'IDs of headers to remove (get IDs from inspectNode)',
+          items: { type: 'string' },
+          type: 'array',
+        },
+        addSearchParams: {
+          description: 'Query params to append. Supports {{variable}} interpolation in values.',
+          items: {
+            properties: {
+              description: { type: 'string' },
+              enabled: { type: 'boolean' },
+              key: { type: 'string' },
+              value: { description: 'Supports {{variable}} interpolation', type: 'string' },
+            },
+            required: ['key'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        removeSearchParamIds: {
+          description: 'IDs of query params to remove (get IDs from inspectNode)',
+          items: { type: 'string' },
+          type: 'array',
+        },
+        addAssertions: {
+          description: 'Assertions to append',
+          items: {
+            properties: {
+              enabled: { type: 'boolean' },
+              value: { type: 'string' },
+            },
+            required: ['value'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+        removeAssertionIds: {
+          description: 'IDs of assertions to remove (get IDs from inspectNode)',
+          items: { type: 'string' },
+          type: 'array',
+        },
       },
       required: ['nodeId'],
       type: 'object',

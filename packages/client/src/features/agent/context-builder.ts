@@ -526,7 +526,7 @@ ${buildXmlFlowBlock(context)}
 IMPORTANT RULES:
 1. To find the start node, look for a node with type "ManualStart".
 2. When connecting nodes, use the node IDs from the workflow XML.
-3. Node outputs are stored by node name. In JS code use ctx["NodeName"]. HTTP nodes output { response: { status, body }, request }. ForEach nodes expose { item, key } during iteration.
+3. Node outputs are stored by node name. In JS code use ctx["NodeName"]. HTTP nodes output { response: { status, body }, request }. ForEach nodes expose { item, key } during iteration. In HTTP fields use {{NodeName.response.body.field}} interpolation — see <variable-syntax>.
 4. A node can connect to multiple targets for parallel execution (all branches run and complete before downstream nodes continue). To run steps sequentially, chain them: Start → A → B → C. Only create Condition nodes when "then" and "else" lead to DIFFERENT destinations — if both go to the same node, skip the Condition.
 5. ALWAYS use connectChain for ALL connections — sequential, branching (auto-applies "then"), fan-out, and fan-in. Examples: ["A","B"] single, ["A","B","C"] chain, ["A",["B","C"],"D"] fan-out/fan-in, [["B","C"],"D"] fan-in only. Pass sourceHandle: "else" or "loop" for non-default branches. Use edge id attributes from \`<edge>\` elements when calling disconnectNodes.
 6. Always confirm what you did after executing tools.
@@ -539,6 +539,28 @@ IMPORTANT RULES:
 13. Create ALL nodes first, then connect them all at once with connectChain. Do not alternate between creating and connecting.
 14. For multi-phase flows, use SEPARATE connectChain calls per phase with a shared fan-in node. Example: ["Start",["GET1","GET2"],"ProcessData"] then ["ProcessData",["POST1","POST2"],"End"]. NEVER use consecutive nested arrays — split them across calls.
 15. NEVER delete a node to work around an error. If a node fails or cannot be configured with available tools, explain the problem to the user and suggest what they need to do manually. Deleting user-requested nodes and replacing them with a different type is not allowed unless the user explicitly asks for it.
-16. AI nodes require a connected AI Provider node that supplies the LLM model and credentials. The agent cannot create or configure AI Provider nodes — this must be done by the user on the canvas. If an AI node fails with a provider-related error, tell the user they need to add and connect an AI Provider node to it with the appropriate credentials.`;
+16. AI nodes require a connected AI Provider node that supplies the LLM model and credentials. The agent cannot create or configure AI Provider nodes — this must be done by the user on the canvas. If an AI node fails with a provider-related error, tell the user they need to add and connect an AI Provider node to it with the appropriate credentials.
+17. Use patchHttpNode to add or remove individual headers, query params, or assertions without affecting the rest. Use updateNode only when you want to replace the entire set.
+
+<variable-syntax>
+All text fields in HTTP nodes (url, headers, body, query params) support {{}} interpolation.
+The server resolves these at runtime — use variable references, not hardcoded values.
+
+Syntax:
+- Flow/node variable: {{BASE_URL}}, {{user_id}}
+- Node output path: {{NodeName.response.body.field}}, {{NodeName.response.status}}
+- Environment var: {{#env:HOME}}, {{#env:API_SECRET}}
+- Functions: {{uuid()}}, {{uuid("v7")}}, {{ulid()}}, {{now()}}
+- File content: {{#file:/path/to/file}}
+
+Examples:
+- URL: {{BASE_URL}}/api/users/{{Get_User.response.body.id}}
+- Header: Bearer {{Auth.response.body.token}}
+- Body: {"id": "{{uuid()}}", "name": "{{user_name}}"}
+
+The <variables> block in the flow XML shows available flow variables — reference them via {{key}}.
+When a value (base URL, API key) appears in multiple nodes, create a variable with createVariable and reference it.
+Node names use underscores for spaces: "Get User" → Get_User in references.
+</variable-syntax>`;
 };
 
