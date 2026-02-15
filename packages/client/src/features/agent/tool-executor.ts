@@ -1028,10 +1028,31 @@ const executeToolInternal = async (
         case 'HTTP': {
           if (!node.httpId) throw new Error(`HTTP node "${node.name}" has no associated HTTP request`);
           const httpIdBytes = parseUlid(node.httpId);
+          const METHODS_WITH_BODY = new Set(['PATCH', 'POST', 'PUT']);
+          const HTTP_METHOD_NAMES_LOCAL: Record<number, string> = {
+            0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
+            5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
+          };
+
+          const [httpData] = await queryCollection((_) =>
+            _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
+          );
+
+          const clearHttpBody = async () => {
+            httpCollection.utils.update({ bodyKind: HttpBodyKind.UNSPECIFIED, httpId: httpIdBytes });
+            const existingBody = await queryCollection((_) =>
+              _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
+            );
+            if (existingBody.length > 0) {
+              httpBodyRawCollection.utils.update({ data: '', httpId: httpIdBytes });
+            }
+          };
 
           // Update method/url
           const httpUpdates: Record<string, unknown> = { httpId: httpIdBytes };
           let hasHttpUpdates = false;
+          const currentMethod = HTTP_METHOD_NAMES_LOCAL[httpData?.method ?? 0] ?? 'UNSPECIFIED';
+          let effectiveMethod = currentMethod;
 
           if (args.method !== undefined) {
             const methodStr = (args.method as string).toUpperCase();
@@ -1039,6 +1060,7 @@ const executeToolInternal = async (
             if (method === undefined) {
               throw new Error(`Invalid HTTP method: "${args.method}". Valid: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`);
             }
+            effectiveMethod = methodStr;
             httpUpdates.method = method;
             hasHttpUpdates = true;
             updatedFields.push('method');
@@ -1104,23 +1126,6 @@ const executeToolInternal = async (
 
           // Method-body guard: validate body is only set for methods that support it
           if (args.body !== undefined && args.body !== null) {
-            const METHODS_WITH_BODY = new Set(['PATCH', 'POST', 'PUT']);
-            let effectiveMethod: string;
-
-            if (args.method !== undefined) {
-              effectiveMethod = (args.method as string).toUpperCase();
-            } else {
-              // Query current method
-              const [httpData] = await queryCollection((_) =>
-                _.from({ http: httpCollection }).where((_) => eq(_.http.httpId, httpIdBytes)).findOne(),
-              );
-              const HTTP_METHOD_NAMES_LOCAL: Record<number, string> = {
-                0: 'UNSPECIFIED', 1: 'GET', 2: 'POST', 3: 'PUT', 4: 'PATCH',
-                5: 'DELETE', 6: 'HEAD', 7: 'OPTIONS', 8: 'CONNECT',
-              };
-              effectiveMethod = HTTP_METHOD_NAMES_LOCAL[httpData?.method ?? 0] ?? 'UNSPECIFIED';
-            }
-
             if (!METHODS_WITH_BODY.has(effectiveMethod)) {
               throw new Error(
                 `Cannot set body for ${effectiveMethod} requests. ` +
@@ -1130,17 +1135,18 @@ const executeToolInternal = async (
             }
           }
 
+          // If method is changed to a no-body method and body wasn't explicitly provided,
+          // clear any existing body to keep method/body state consistent.
+          if (args.method !== undefined && args.body === undefined && !METHODS_WITH_BODY.has(effectiveMethod)) {
+            await clearHttpBody();
+            updatedFields.push('body');
+          }
+
           // Set or clear body
           if (args.body !== undefined) {
             const body = args.body as null | string;
             if (body === null) {
-              httpCollection.utils.update({ bodyKind: HttpBodyKind.UNSPECIFIED, httpId: httpIdBytes });
-              const existingBody = await queryCollection((_) =>
-                _.from({ br: httpBodyRawCollection }).where((_) => eq(_.br.httpId, httpIdBytes)),
-              );
-              if (existingBody.length > 0) {
-                httpBodyRawCollection.utils.update({ data: '', httpId: httpIdBytes });
-              }
+              await clearHttpBody();
             } else {
               httpCollection.utils.update({ bodyKind: HttpBodyKind.RAW, httpId: httpIdBytes });
               const existingBody = await queryCollection((_) =>
@@ -1196,23 +1202,43 @@ const executeToolInternal = async (
 
       const httpIdBytes = parseUlid(node.httpId);
       const patchedFields: string[] = [];
+      const warnings: string[] = [];
 
       // --- Remove headers ---
       const removeHeaderIds = args.removeHeaderIds as string[] | undefined;
+      const addHeaders = args.addHeaders as { description?: string; enabled?: boolean; key: string; value?: string }[] | undefined;
+
       if (removeHeaderIds?.length) {
+        const existingHeaders = await queryCollection((_) =>
+          _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
+        );
+        const existingHeaderIds = new Set(
+          existingHeaders
+            .filter((h) => h.httpHeaderId != null)
+            .map((h) => Ulid.construct(h.httpHeaderId).toCanonical()),
+        );
+        let removedCount = 0;
         for (const id of removeHeaderIds) {
+          if (!existingHeaderIds.has(id)) continue;
           httpHeaderCollection.utils.delete({ httpHeaderId: parseUlid(id) });
+          removedCount++;
         }
-        patchedFields.push(`removedHeaders(${removeHeaderIds.length})`);
+        if (removedCount > 0) {
+          patchedFields.push(`removedHeaders(${removedCount})`);
+        }
+        const skippedCount = removeHeaderIds.length - removedCount;
+        if (skippedCount > 0) {
+          warnings.push(`Skipped ${skippedCount} header ID(s) not belonging to this HTTP node.`);
+        }
       }
 
       // --- Add headers ---
-      const addHeaders = args.addHeaders as { description?: string; enabled?: boolean; key: string; value?: string }[] | undefined;
       if (addHeaders?.length) {
-        const existing = await queryCollection((_) =>
+        const existingHeaders = await queryCollection((_) =>
           _.from({ h: httpHeaderCollection }).where((_) => eq(_.h.httpId, httpIdBytes)),
         );
-        let nextOrder = existing.length;
+        const maxOrder = existingHeaders.reduce((max, h) => Math.max(max, h.order ?? -1), -1);
+        let nextOrder = maxOrder + 1;
         for (const h of addHeaders) {
           await httpHeaderCollection.utils.insert({
             description: h.description ?? '',
@@ -1229,20 +1255,39 @@ const executeToolInternal = async (
 
       // --- Remove search params ---
       const removeSearchParamIds = args.removeSearchParamIds as string[] | undefined;
+      const addSearchParams = args.addSearchParams as { description?: string; enabled?: boolean; key: string; value?: string }[] | undefined;
+
       if (removeSearchParamIds?.length) {
+        const existingSearchParams = await queryCollection((_) =>
+          _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
+        );
+        const existingSearchParamIds = new Set(
+          existingSearchParams
+            .filter((sp) => sp.httpSearchParamId != null)
+            .map((sp) => Ulid.construct(sp.httpSearchParamId).toCanonical()),
+        );
+        let removedCount = 0;
         for (const id of removeSearchParamIds) {
+          if (!existingSearchParamIds.has(id)) continue;
           httpSearchParamCollection.utils.delete({ httpSearchParamId: parseUlid(id) });
+          removedCount++;
         }
-        patchedFields.push(`removedSearchParams(${removeSearchParamIds.length})`);
+        if (removedCount > 0) {
+          patchedFields.push(`removedSearchParams(${removedCount})`);
+        }
+        const skippedCount = removeSearchParamIds.length - removedCount;
+        if (skippedCount > 0) {
+          warnings.push(`Skipped ${skippedCount} query param ID(s) not belonging to this HTTP node.`);
+        }
       }
 
       // --- Add search params ---
-      const addSearchParams = args.addSearchParams as { description?: string; enabled?: boolean; key: string; value?: string }[] | undefined;
       if (addSearchParams?.length) {
-        const existing = await queryCollection((_) =>
+        const existingSearchParams = await queryCollection((_) =>
           _.from({ sp: httpSearchParamCollection }).where((_) => eq(_.sp.httpId, httpIdBytes)),
         );
-        let nextOrder = existing.length;
+        const maxOrder = existingSearchParams.reduce((max, sp) => Math.max(max, sp.order ?? -1), -1);
+        let nextOrder = maxOrder + 1;
         for (const sp of addSearchParams) {
           await httpSearchParamCollection.utils.insert({
             description: sp.description ?? '',
@@ -1259,20 +1304,39 @@ const executeToolInternal = async (
 
       // --- Remove assertions ---
       const removeAssertionIds = args.removeAssertionIds as string[] | undefined;
+      const addAssertions = args.addAssertions as { enabled?: boolean; value: string }[] | undefined;
+
       if (removeAssertionIds?.length) {
+        const existingAssertions = await queryCollection((_) =>
+          _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
+        );
+        const existingAssertionIds = new Set(
+          existingAssertions
+            .filter((a) => a.httpAssertId != null)
+            .map((a) => Ulid.construct(a.httpAssertId).toCanonical()),
+        );
+        let removedCount = 0;
         for (const id of removeAssertionIds) {
+          if (!existingAssertionIds.has(id)) continue;
           httpAssertCollection.utils.delete({ httpAssertId: parseUlid(id) });
+          removedCount++;
         }
-        patchedFields.push(`removedAssertions(${removeAssertionIds.length})`);
+        if (removedCount > 0) {
+          patchedFields.push(`removedAssertions(${removedCount})`);
+        }
+        const skippedCount = removeAssertionIds.length - removedCount;
+        if (skippedCount > 0) {
+          warnings.push(`Skipped ${skippedCount} assertion ID(s) not belonging to this HTTP node.`);
+        }
       }
 
       // --- Add assertions ---
-      const addAssertions = args.addAssertions as { enabled?: boolean; value: string }[] | undefined;
       if (addAssertions?.length) {
-        const existing = await queryCollection((_) =>
+        const existingAssertions = await queryCollection((_) =>
           _.from({ a: httpAssertCollection }).where((_) => eq(_.a.httpId, httpIdBytes)),
         );
-        let nextOrder = existing.length;
+        const maxOrder = existingAssertions.reduce((max, a) => Math.max(max, a.order ?? -1), -1);
+        let nextOrder = maxOrder + 1;
         for (const a of addAssertions) {
           await httpAssertCollection.utils.insert({
             enabled: a.enabled ?? true,
@@ -1289,7 +1353,7 @@ const executeToolInternal = async (
         return { message: 'No patch operations provided', success: false };
       }
 
-      return { patchedFields, success: true };
+      return { patchedFields, success: true, warnings: warnings.length > 0 ? warnings : undefined };
     }
 
     case 'updateVariable': {
