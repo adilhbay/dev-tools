@@ -6,7 +6,7 @@ import { FileKind } from '@the-dev-tools/spec/buf/api/file_system/v1/file_system
 import { FlowItemState, FlowService, HandleKind, NodeKind } from '@the-dev-tools/spec/buf/api/flow/v1/flow_pb';
 import { HttpBodyKind, HttpMethod } from '@the-dev-tools/spec/buf/api/http/v1/http_pb';
 import { request } from '~/shared/api';
-import { getNextOrder, queryCollection } from '~/shared/lib';
+import { queryCollection } from '~/shared/lib';
 import type { FlowContextData, ToolCall, ToolResult } from './types';
 
 type CollectionUtils = ReturnType<typeof import('~/shared/api').useApiCollection>['utils'];
@@ -114,6 +114,39 @@ const FLOW_ITEM_STATE_NAMES: Record<number, string> = {
   [FlowItemState.RUNNING]: 'Running',
   [FlowItemState.SUCCESS]: 'Success',
   [FlowItemState.UNSPECIFIED]: 'Idle',
+};
+
+const AGENT_MAX_FILE_ORDER = 1_000_000_000;
+
+const areBytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+};
+
+const getNextAgentFileOrder = async (fileCollection: CollectionData, workspaceId: Uint8Array): Promise<number> => {
+  const files = await queryCollection((_) => _.from({ item: fileCollection }));
+
+  let maxOrder = 0;
+  for (const file of files) {
+    if (typeof file !== 'object' || file === null) continue;
+
+    const fileData = file as Record<string, unknown>;
+    const fileWorkspaceId = fileData['workspaceId'];
+
+    if (!(fileWorkspaceId instanceof Uint8Array)) continue;
+    if (!areBytesEqual(fileWorkspaceId, workspaceId)) continue;
+
+    const order = fileData['order'];
+    if (typeof order !== 'number') continue;
+    if (!Number.isFinite(order)) continue;
+    if (Math.abs(order) > AGENT_MAX_FILE_ORDER) continue;
+    if (order > maxOrder) maxOrder = order;
+  }
+
+  return maxOrder + 1;
 };
 
 const MUTATION_TOOLS = new Set([
@@ -516,7 +549,7 @@ const executeToolInternal = async (
             name: nodeName,
             url,
           }),
-          getNextOrder(fileCollection).then((order) =>
+          getNextAgentFileOrder(fileCollection, workspaceId).then((order) =>
             fileCollection.utils.insert({
               fileId: httpId,
               kind: FileKind.HTTP,
