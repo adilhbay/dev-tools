@@ -665,14 +665,21 @@ const executeToolInternal = async (
 
       const nodeId = parseUlid(nodeIdStr);
 
-      // Delete all edges connected to this node (both incoming and outgoing)
-      const connectedEdges = flowContext.edges.filter((e) => e.sourceId === nodeIdStr || e.targetId === nodeIdStr);
-      for (const edge of connectedEdges) {
-        edgeCollection.utils.delete({ edgeId: parseUlid(edge.id) });
+      // Query live edges from collection to avoid stale flowContext during batched tool calls.
+      const liveEdges = await queryCollection((_) =>
+        _.from({ edge: edgeCollection }).where((_) => eq(_.edge.flowId, flowId)),
+      );
+      const connectedEdgeIds = liveEdges
+        .filter((edge) => edge.edgeId != null && edge.sourceId != null && edge.targetId != null)
+        .filter((edge) => areBytesEqual(edge.sourceId, nodeId) || areBytesEqual(edge.targetId, nodeId))
+        .map((edge) => edge.edgeId);
+
+      for (const edgeId of connectedEdgeIds) {
+        edgeCollection.utils.delete({ edgeId });
       }
 
       nodeCollection.utils.delete({ nodeId });
-      return { deletedEdges: connectedEdges.length, success: true };
+      return { deletedEdges: connectedEdgeIds.length, success: true };
     }
 
     case 'disconnectNodes': {
