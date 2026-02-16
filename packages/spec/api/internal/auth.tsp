@@ -1,7 +1,11 @@
 using DevTools;
-using Api.AuthCommon;
 
 namespace Api.AuthInternal;
+
+enum AuthProvider {
+  Email,
+  Google,
+}
 
 model User {
   id: Id;
@@ -78,18 +82,7 @@ op Token(...TokenRequest): TokenResponse;
 
 // -- OAuth RPCs --
 
-model OAuthUrlRequest {
-  provider: AuthProvider;
-  callbackUrl: string;
-  state?: string;
-}
-
-model OAuthUrlResponse {
-  url: string;
-  state: string;
-}
-
-op OAuthUrl(...OAuthUrlRequest): OAuthUrlResponse;
+op OAuthUrl(...Api.Auth.OAuthUrlRequest): Api.Auth.OAuthUrlResponse;
 
 model ExchangeOAuthCodeRequest {
   provider: AuthProvider;

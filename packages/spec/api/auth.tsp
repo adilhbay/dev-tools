@@ -1,5 +1,4 @@
 using DevTools;
-using Api.AuthCommon;
 
 namespace Api.Auth;
 
@@ -41,7 +40,7 @@ model SignOutResponse {}
 op SignOut(...SignOutRequest): SignOutResponse;
 
 model OAuthUrlRequest {
-  provider: AuthProvider;
+  provider: AuthInternal.AuthProvider;
   callbackUrl: string;
   state?: string;
 }
@@ -54,7 +53,7 @@ model OAuthUrlResponse {
 op OAuthUrl(...OAuthUrlRequest): OAuthUrlResponse;
 
 model HandleOAuthCallbackRequest {
-  provider: AuthProvider;
+  provider: AuthInternal.AuthProvider;
   code: string;
   state?: string;
 }
